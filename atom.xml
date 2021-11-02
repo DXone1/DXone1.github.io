@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-01T13:58:36.504Z</updated>
+    <updated>2021-11-02T08:28:19.099Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,39 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[电商项目 day1：]]></title>
+        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day1/</id>
+        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day1/">
+        </link>
+        <updated>2021-11-02T02:35:33.000Z</updated>
+        <content type="html"><![CDATA[<p>为了解决开发的繁重，使用gitee开源的人人开源脚手架工程快速搭建前后分离的项目工程。<br>
+renren-fast: https://gitee.com/renrenio/renren-fast<br>
+renren-fast-vue：https://gitee.com/renrenio/renren-fast-vue.git<br>
+将renren-fast工程clone到本地导入项目，在父pom文件中定义这个模块即可。</p>
+<h2 id="1-基于开源脚手架项目快速搭建">1 基于开源脚手架项目快速搭建</h2>
+<h3 id="1-后台框架搭建">1 后台框架搭建</h3>
+<p>将后端程序加入到项目文档中成为一个子模块。打开其中的建表命令，通过sqlyog连接centos中docker部署的数据库。执行建表指令，搭建起后台管理的后端框架。修改springboot的dev环境配置文件，将项目连接到数据库。项目启动成功如下图<br>
+<img src="https://dxone1.github.io//post-images/1635837233452.png" alt="" loading="lazy"><br>
+在浏览器中输入http://localhost:8080/renren-fast/ 即可进入raw后端项目，返回如下图（浏览器安装了json解析工具）<br>
+<img src="https://dxone1.github.io//post-images/1635837314851.png" alt="" loading="lazy"></p>
+<h3 id="2-前端框架搭建">2 前端框架搭建</h3>
+<p>接下来进行前端工程。因为之前前端没有深入学习过，这里一边做一边学习。</p>
+<ol>
+<li>下载node.js环境并安装：版本10.16.3</li>
+<li>配置npm使用淘宝镜像 npm config set registry http://registry.npm.taobao.org/</li>
+<li>在vs code中打开renren-fast-vue项目，在控制台终端使用npm install命令下载项目需要的各种依赖：NPM 是随同 NodeJS 一起安装的包管理工具</li>
+<li>在控制台输入 npm run dev即可开启前端项目。前端地址localhost:8001会将数据打到后端8080地址<br>
+前端启动画面<br>
+<img src="https://dxone1.github.io//post-images/1635838697500.png" alt="" loading="lazy"><br>
+默认登陆账号为 admin admin</li>
+</ol>
+<h3 id="3-代码生成器">3 代码生成器</h3>
+<p>gitee项目 https://gitee.com/renrenio/renren-generator.git<br>
+将代码生成器放入后端项目目录中，添加为模块。将配置修改为对应的数据库和项目包。启动在80端口生成代码文档。<br>
+将代码文档替换对应的微服务文档即可。注意需要引入许多新的公共依赖。在这里提取出一个公共项目mall-common。所有其他的微服务都依赖于这个模块，在其中的com.dong.common.utils等包中加入需要的类，在公共pom中添加需要的依赖。</p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[电商项目 day0：环境配置]]></title>
         <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day0/</id>
