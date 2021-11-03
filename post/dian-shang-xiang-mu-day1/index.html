@@ -2,11 +2,11 @@
   <head>
     <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>电商项目 day1： | Gridea</title>
-<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1635841695979">
+<title>电商项目 day1：使用开源项目快速搭建 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1635927481389">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
-<link rel="alternate" type="application/atom+xml" title="电商项目 day1： | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="alternate" type="application/atom+xml" title="电商项目 day1：使用开源项目快速搭建 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
 
 
@@ -23,7 +23,7 @@ renren-fast-vue：https://..." />
       <div class="main-content">
         <div class="site-header">
   <a href="https://dxone1.github.io/">
-  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1635841695979" alt="">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1635927481389" alt="">
   </a>
   <h1 class="site-title">
     Gridea
@@ -76,14 +76,14 @@ renren-fast-vue：https://..." />
         <div class="post-detail">
           <article class="post">
             <h2 class="post-title">
-              电商项目 day1：
+              电商项目 day1：使用开源项目快速搭建
             </h2>
             <div class="post-info">
               <span>
                 2021-11-02
               </span>
               <span>
-                3 min read
+                7 min read
               </span>
               
             </div>
@@ -114,7 +114,221 @@ renren-fast-vue：https://gitee.com/renrenio/renren-fast-vue.git<br>
 <h3 id="3-代码生成器">3 代码生成器</h3>
 <p>gitee项目 https://gitee.com/renrenio/renren-generator.git<br>
 将代码生成器放入后端项目目录中，添加为模块。将配置修改为对应的数据库和项目包。启动在80端口生成代码文档。<br>
-将代码文档替换对应的微服务文档即可。注意需要引入许多新的公共依赖。在这里提取出一个公共项目mall-common。所有其他的微服务都依赖于这个模块，在其中的com.dong.common.utils等包中加入需要的类，在公共pom中添加需要的依赖。</p>
+将代码文档替换对应的微服务文档即可。注意需要引入许多新的公共依赖。在这里提取出一个公共项目mall-common。所有其他的微服务都依赖于这个模块，在其中的com.dong.common.utils等包中加入需要的类，在公共pom中添加需要的依赖。<br>
+因为本项目使用了Mybatis-plus帮助快速开发，所以要按以下步骤进行：</p>
+<ol>
+<li>在公共项目mall-common中导入mybatis-plus的依赖</li>
+<li>在yml文件中配置数据源、mybatis-plus信息等。注意和数据库版本匹配：5.7.36。使用8.0.26版本的数据库驱动即可</li>
+<li>配置包扫描，在主启动类上用@Mapper注解指示Mapper接口路径</li>
+</ol>
+<pre><code class="language-java">@MapperScan(&quot;com.dong.mall.product.dao&quot;)
+@SpringBootApplication
+public class MallProductApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(MallProductApplication.class, args);
+    }
+
+}
+</code></pre>
+<pre><code class="language-yaml"># application.yml配置的数据源和mybatis-plus
+spring:
+  datasource:
+    username: root
+    password: root
+    url: jdbc:mysql://192.168.180.3:3306/mall_pms
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml
+  # 配置自增主键 
+  global-config:
+    db-config:
+      id-type: auto
+</code></pre>
+<p>注意本项目以后使用的是spring security保证安全，所以不需要renren开源项目中的部分文件，按需添加。最终的mall-common目录如下<br>
+<img src="https://dxone1.github.io//post-images/1635921702816.png" alt="" loading="lazy"><br>
+在test中使用单元测试，注意匹配jdk版本。同时注意springboot和springcloud版本的匹配。本项目是</p>
+<pre><code class="language-yaml">springboot: 2.1.8.RELEASE
+springcloud: Greenwich.SR3
+</code></pre>
+<p>接下来，按照上述步骤逆向生成除mall-product之外其他所有的微服务的代码，并调试。</p>
+<h3 id="代码生成器的配置以mall-coupon为例">代码生成器的配置：以mall-coupon为例</h3>
+<ol>
+<li>首先在generator.properties中设置项目层级目录的相关信息</li>
+</ol>
+<pre><code class="language-properties">#\u4EE3\u7801\u751F\u6210\u5668\uFF0C\u914D\u7F6E\u4FE1\u606F
+
+mainPath=com.dong
+#\u5305\u540D
+package=com.dong.mall
+moduleName=coupon
+#\u4F5C\u8005
+author=dong
+#Email
+email=dongjiyu111@126.com
+#\u8868\u524D\u7F00(\u7C7B\u540D\u4E0D\u4F1A\u5305\u542B\u8868\u524D\u7F00)
+tablePrefix=sms_
+
+#\u7C7B\u578B\u8F6C\u6362\uFF0C\u914D\u7F6E\u4FE1\u606F
+tinyint=Integer
+smallint=Integer
+mediumint=Integer
+int=Integer
+integer=Integer
+bigint=Long
+float=Float
+double=Double
+decimal=BigDecimal
+bit=Boolean
+
+char=String
+varchar=String
+tinytext=String
+text=String
+mediumtext=String
+longtext=String
+
+
+date=Date
+datetime=Date
+timestamp=Date
+
+NUMBER=Integer
+INT=Integer
+INTEGER=Integer
+BINARY_INTEGER=Integer
+LONG=String
+FLOAT=Float
+BINARY_FLOAT=Float
+DOUBLE=Double
+BINARY_DOUBLE=Double
+DECIMAL=BigDecimal
+CHAR=String
+VARCHAR=String
+VARCHAR2=String
+NVARCHAR=String
+NVARCHAR2=String
+CLOB=String
+BLOB=String
+DATE=Date
+DATETIME=Date
+TIMESTAMP=Date
+TIMESTAMP(6)=Date
+
+int8=Long
+int4=Integer
+int2=Integer
+numeric=BigDecimal
+
+nvarchar=String
+</code></pre>
+<ol start="2">
+<li>在application.yml中配置数据源信息，coupon逆向生成的表存在于mall_sms数据库中</li>
+</ol>
+<pre><code class="language-yaml">server:
+  port: 80
+
+# mysql
+spring:
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    #MySQL配置
+    driverClassName: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://192.168.180.3:3306/mall_sms?useUnicode=true&amp;characterEncoding=UTF-8&amp;useSSL=false&amp;serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    #oracle配置
+    #    driverClassName: oracle.jdbc.OracleDriver
+    #    url: jdbc:oracle:thin:@47.100.206.162:1521:xe
+    #    username: renren
+    #    password: 123456
+    #SQLServer配置
+    #    driverClassName: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    #    url: jdbc:sqlserver://192.168.10.10:1433;DatabaseName=renren_fast
+    #    username: sa
+    #    password: 123456
+    #PostgreSQL配置
+  #    driverClassName: org.postgresql.Driver
+  #    url: jdbc:postgresql://192.168.10.10:5432/renren_fast
+  #    username: postgres
+  #    password: 123456
+
+
+
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+  resources:
+    static-locations: classpath:/static/,classpath:/views/
+
+#mongodb:
+#  host: localhost
+#  port: 27017
+#  auth: false #是否使用密码验证
+#  username: tincery
+#  password: renren
+#  source: 123456
+#  database: test
+
+mybatis-plus:
+  mapperLocations: classpath:mapper/**/*.xml
+
+
+pagehelper:
+  reasonable: true
+  supportMethodsArguments: true
+  params: count=countSql
+
+
+#指定数据库，可选值有【mysql、oracle、sqlserver、postgresql、mongodb】
+renren:
+  database: mysql
+</code></pre>
+<ol start="3">
+<li>引入公共依赖</li>
+<li>写application.yml文件</li>
+</ol>
+<pre><code class="language-yaml">spring:
+  datasource:
+    username: root
+    password: root
+    url: jdbc:mysql://192.168.180.3:3306/mall_sms?useUnicode=true&amp;characterEncoding=UTF-8&amp;useSSL=false&amp;serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml
+  # 配置自增主键
+  global-config:
+    db-config:
+      id-type: auto
+</code></pre>
+<ol start="5">
+<li>配置包扫描</li>
+</ol>
+<pre><code class="language-java">@MapperScan(&quot;com.dong.mall.product.dao&quot;)
+@SpringBootApplication
+public class MallCouponApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(MallCouponApplication.class, args);
+    }
+
+}
+</code></pre>
+<ol start="6">
+<li>test中junit重新导入包</li>
+<li>测试完成<br>
+<img src="https://dxone1.github.io//post-images/1635925644636.png" alt="" loading="lazy"></li>
+</ol>
+<h3 id="项目的端口分配">项目的端口分配</h3>
+<pre><code class="language-yaml">mall-coupon: 7000
+mall-member: 8000
+mall-order: 9000
+mall-product: 10000
+mall-ware: 11000
+</code></pre>
+<p>重要的细心的耐心，按照步骤一步步即可完成。通过这个脚手架工程和代码生成器可以快速完成基本的crud搭建，快速进入下一阶段的业务编写和云配置部分。</p>
 
               </div>
               <div class="toc-container">
@@ -126,6 +340,8 @@ renren-fast-vue：https://gitee.com/renrenio/renren-fast-vue.git<br>
 <li><a href="#1-%E5%90%8E%E5%8F%B0%E6%A1%86%E6%9E%B6%E6%90%AD%E5%BB%BA">1 后台框架搭建</a></li>
 <li><a href="#2-%E5%89%8D%E7%AB%AF%E6%A1%86%E6%9E%B6%E6%90%AD%E5%BB%BA">2 前端框架搭建</a></li>
 <li><a href="#3-%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8">3 代码生成器</a></li>
+<li><a href="#%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8%E7%9A%84%E9%85%8D%E7%BD%AE%E4%BB%A5mall-coupon%E4%B8%BA%E4%BE%8B">代码生成器的配置：以mall-coupon为例</a></li>
+<li><a href="#%E9%A1%B9%E7%9B%AE%E7%9A%84%E7%AB%AF%E5%8F%A3%E5%88%86%E9%85%8D">项目的端口分配</a></li>
 </ul>
 </li>
 </ul>
