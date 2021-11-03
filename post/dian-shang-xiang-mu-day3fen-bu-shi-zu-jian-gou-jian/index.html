@@ -1,0 +1,445 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>电商项目 day2：分布式组件构建 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1635946061406">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="电商项目 day2：分布式组件构建 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="之前已经学习过SpringCloud部分的组件并实际使用过。这次使用springcloud alibaba的组件完成如下功能
+nacos: 服务注册、发现和配置中心功能
+ribbon, openfeign：服务远程调用和负载均衡
+gatew..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1635946061406" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              电商项目 day2：分布式组件构建
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-03
+              </span>
+              <span>
+                8 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>之前已经学习过SpringCloud部分的组件并实际使用过。这次使用springcloud alibaba的组件完成如下功能</p>
+<pre><code class="language-txt">nacos: 服务注册、发现和配置中心功能
+ribbon, openfeign：服务远程调用和负载均衡
+gateway：服务网关
+sentinel：限流、降级和熔断保护
+sleuth：调用链监控
+seata：分布式事务
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1635929017334.png" alt="" loading="lazy"><br>
+先统一版本，因为使用的是springboot 2.1.8.RELEASE，故采用SpringCloud Alibaba 2.1.0.RELEASE版本<br>
+首先在项目的mall-common中引入依赖</p>
+<pre><code class="language-xml">&lt;dependencyManagement&gt;
+    &lt;dependencies&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;com.alibaba.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-alibaba-dependencies&lt;/artifactId&gt;
+            &lt;version&gt;2.1.0.RELEASE&lt;/version&gt;
+            &lt;type&gt;pom&lt;/type&gt;
+            &lt;scope&gt;import&lt;/scope&gt;
+        &lt;/dependency&gt;
+    &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;
+</code></pre>
+<p>将其管理起来：<strong>没有引入</strong></p>
+<h2 id="1-nacos注册中心">1 Nacos注册中心</h2>
+<ol>
+<li>所有微服务都需要nacos，所以在mall-common引入nacos的服务发现依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+            &lt;groupId&gt;com.alibaba.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-starter-alibaba-nacos-discovery&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>在所有需要nacos服务注册的项目中配置，并设置name</li>
+</ol>
+<pre><code class="language-yaml">spring:
+    cloud:
+        nacos:
+            discovery:
+                server-addr: 127.0.0.1:8848
+    application: 
+        name: mall-coupon
+</code></pre>
+<ol start="3">
+<li>使用<code>@EnableDiscoveryClient</code>注解即可开启发现功能</li>
+<li>启动nacos，在windows下测试。本机已经配置好nacos的持久化设置，使用如下命令即可启动</li>
+</ol>
+<pre><code class="language-shell">D:\backup\document\installer\nacos-server-2.0.3\nacos\bin&gt;startup.cmd -m standalone
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1635931291828.png" alt="" loading="lazy"></figure>
+<p><strong>一个小细节</strong><br>
+在2021版本的idea中不默认开启service工具，在view -&gt; Tool windows中开启。通过小+号打开Run Configuration Type选择Springboot即可<br>
+<img src="https://dxone1.github.io//post-images/1635931972133.png" alt="" loading="lazy"></p>
+<h2 id="2-openfeign进行远程调用">2 OpenFeign进行远程调用</h2>
+<p>第一步仍然是引入依赖，不同的是这个项目使用Spring Initializer生成时使用了feign场景。</p>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt; &lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>在nall-coupon中添加一个调用controller方法</li>
+</ol>
+<pre><code class="language-java">@RestController
+@RequestMapping(&quot;coupon/coupon&quot;)
+public class CouponController {
+    @Autowired
+    private CouponService couponService;
+
+    @RequestMapping(&quot;/member/list&quot;)
+    public R membercoupons() {
+        CouponEntity couponEntity = new CouponEntity();
+        couponEntity.setCouponName(&quot;满100减10&quot;);
+        return R.ok().put(&quot;coupons&quot;, Arrays.asList(couponEntity));
+    }
+    ......
+}
+</code></pre>
+<ol start="3">
+<li>写一个用于远程调用的接口：FeignClient，标注被调用的完整controller和服务名称</li>
+</ol>
+<pre><code class="language-java">// com.dong.mall.member.feign.CouponFeignService
+package com.dong.mall.coupon.feign;
+
+import com.dong.common.utils.R;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+@FeignClient(&quot;mall-coupon&quot;)
+public interface CouponFeignService {
+    @RequestMapping(&quot;/coupon/coupon/member/list&quot;)
+    public R membercoupons();
+}
+</code></pre>
+<ol start="4">
+<li>在调用发起方主启动类使用@EnableFeignClients(basePackages = &quot;com.dong.mall.member.feign&quot;)开启远程调用功能</li>
+<li>在调用发起方mall-member中写一个调用测试方法</li>
+</ol>
+<pre><code class="language-java">@RestController
+@RequestMapping(&quot;member/member&quot;)
+public class MemberController {
+    @Autowired
+    private MemberService memberService;
+    // 远程调用接口
+    @Autowired
+    CouponFeignService couponFeignService;
+
+    @RequestMapping(&quot;/coupons&quot;)
+    public R test() {
+        MemberEntity memberEntity = new MemberEntity();
+        memberEntity.setNickname(&quot;张三&quot;);
+        R membercoupons = couponFeignService.membercoupons();
+        return R.ok().put(&quot;member&quot;, memberEntity).put(&quot;coupons&quot;, membercoupons.get(&quot;coupons&quot;));
+    }
+    ......
+}
+</code></pre>
+<p>测试<br>
+<img src="https://dxone1.github.io//post-images/1635937631422.png" alt="" loading="lazy"></p>
+<h2 id="3-使用nacos做配置中心">3 使用Nacos做配置中心</h2>
+<ol>
+<li>在mall-common中引入配置中心依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+            &lt;groupId&gt;com.alibaba.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-starter-alibaba-nacos-config&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>在需要管理配置的项目中编写bootstrap.properties文件，该文件会早于application.yml/application.properties生效</li>
+</ol>
+<pre><code class="language-properties">spring.application.name=mall-coupon
+# 配置中心的地址
+spring.cloud.nacos.config.server-addr=127.0.0.1:8848
+</code></pre>
+<ol start="3">
+<li>在control上添加一个注解 @RefreshScope</li>
+<li>尝试使用nacos的配置中心功能。已经开启了持久化功能。配置文件名为mall-coupon.properties</li>
+<li>测试</li>
+</ol>
+<pre><code class="language-java">@RefreshScope
+@RestController
+@RequestMapping(&quot;coupon/coupon&quot;)
+public class CouponController {
+    @Autowired
+    private CouponService couponService;
+
+    // 从配置中获取
+    @Value(&quot;${coupon.user.name}&quot;)
+    private String name;
+    @Value(&quot;${coupon.user.age}&quot;)
+    private String age;
+
+    @RequestMapping(&quot;/test&quot;)
+    public R test() {
+        return R.ok().put(&quot;name&quot;, name).put(&quot;age&quot;, age);
+    }
+    ......
+}
+</code></pre>
+<p><strong>会优先使用配置中心的配置</strong></p>
+<h3 id="高级主题分组">高级主题：分组</h3>
+<ol>
+<li>默认命名空间为public，用于环境配置隔离<br>
+开发、测试、生产...<br>
+<img src="https://dxone1.github.io//post-images/1635939434661.png" alt="" loading="lazy"><br>
+如何切换namespce?</li>
+</ol>
+<pre><code class="language-properties">spring.cloud.nacos.config.namespace=cb2b23c4-62ab-41e0-a131-70ae4b2c2772
+</code></pre>
+<p>上面的是对应的命名空间的ID，在nacos图形界面里显示<br>
+也可以每个微服务之间互相隔离，建立不同的命名空间<br>
+2. 配置集：配置集的集合<br>
+3. 配置集id：类似于配置文件名， Data id<br>
+4. 配置分组：默认属于DEFAULT_GROUP<br>
+<img src="https://dxone1.github.io//post-images/1635939995992.png" alt="" loading="lazy"><br>
+使用切换分组</p>
+<pre><code class="language-properties">spring.cloud.nacos.config.group=1111
+</code></pre>
+<p><strong>本项目的约定</strong><br>
+每个微服务设置一个命名空间，使用配置分组区分环境 dev, test, prod</p>
+<h3 id="高级主题加载多配置集">高级主题：加载多配置集</h3>
+<p>例子：</p>
+<ol>
+<li>将mall-coupons项目的配置拆分并托管给nacos</li>
+</ol>
+<pre><code class="language-yaml"># datasource.yaml
+spring:
+  datasource:
+    username: root
+    password: root
+    url: jdbc:mysql://192.168.180.3:3306/mall_sms?useUnicode=true&amp;characterEncoding=UTF-8&amp;useSSL=false&amp;serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1635940659201.png" alt="" loading="lazy"><br>
+2. 在bootstrap.properties中配置多配置集</p>
+<pre><code class="language-properties">spring.application.name=mall-coupon
+# 配置中心的地址
+spring.cloud.nacos.config.server-addr=127.0.0.1:8848
+spring.cloud.nacos.config.namespace=527f3748-b8fe-44bb-8e4f-bf22371a0adc
+spring.cloud.nacos.config.group=dev
+
+# 配置集
+# id
+spring.cloud.nacos.config.ext-config[0].data-id=datasource.yaml
+# 分组
+spring.cloud.nacos.config.ext-config[0].group=dev
+# 是否动态刷新
+spring.cloud.nacos.config.ext-config[0].refresh=true
+
+spring.cloud.nacos.config.ext-config[1].data-id=mybatis.yaml
+spring.cloud.nacos.config.ext-config[1].group=dev
+spring.cloud.nacos.config.ext-config[1].refresh=true
+
+spring.cloud.nacos.config.ext-config[2].data-id=other.yaml
+spring.cloud.nacos.config.ext-config[2].group=dev
+spring.cloud.nacos.config.ext-config[2].refresh=true
+</code></pre>
+<h2 id="4-gateway服务网关">4 Gateway服务网关</h2>
+<p>作用：鉴权、限流、日志<br>
+<img src="https://dxone1.github.io//post-images/1635943097682.png" alt="" loading="lazy"><br>
+关键词：路由、断言、过滤器<br>
+<img src="https://dxone1.github.io//post-images/1635943846901.png" alt="" loading="lazy"><br>
+创建一个项目，作为整体的api网关mall-gateway</p>
+<ol>
+<li>创建项目，生成时选择Gateway</li>
+<li>修改pom文件，统一版本并引入mall-common</li>
+<li>开启服务发现 @EnableDiscoveryClient</li>
+<li>写application.properties，配置nacos的相关地址，服务发现和注册中心。网关设置为88端口</li>
+</ol>
+<pre><code class="language-yaml"># bootstrap.yml
+spring:
+  application:
+    name: mall-gateway
+  cloud:
+    nacos:
+      config:
+        server-addr: 127.0.0.1:8848
+        namespace: 99df8f0b-1740-4545-b75e-108da1f752ff
+        group: dev
+</code></pre>
+<pre><code class="language-properties"># application.properties
+spring.cloud.nacos.discovery.server-addr=127.0.0.1:8848
+spring.application.name=mall-gateway
+server.port=88
+</code></pre>
+<p>配置gateway的规则</p>
+<pre><code class="language-yaml">spring:
+  cloud:
+    gateway:
+      routes:
+        - id: baidu_route
+          uri: https://www.baidu.com
+          # 断言含有百度
+          predicates:
+            - Query=url,baidu
+        - id: qq_route
+          uri: https://www.qq.com
+          predicates:
+            - Query=url,qq
+</code></pre>
+<p>如果访问https://localhost:88/hello?url=baidu 会跳到www.baidu.com/hello</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#1-nacos%E6%B3%A8%E5%86%8C%E4%B8%AD%E5%BF%83">1 Nacos注册中心</a></li>
+<li><a href="#2-openfeign%E8%BF%9B%E8%A1%8C%E8%BF%9C%E7%A8%8B%E8%B0%83%E7%94%A8">2 OpenFeign进行远程调用</a></li>
+<li><a href="#3-%E4%BD%BF%E7%94%A8nacos%E5%81%9A%E9%85%8D%E7%BD%AE%E4%B8%AD%E5%BF%83">3 使用Nacos做配置中心</a>
+<ul>
+<li><a href="#%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98%E5%88%86%E7%BB%84">高级主题：分组</a></li>
+<li><a href="#%E9%AB%98%E7%BA%A7%E4%B8%BB%E9%A2%98%E5%8A%A0%E8%BD%BD%E5%A4%9A%E9%85%8D%E7%BD%AE%E9%9B%86">高级主题：加载多配置集</a></li>
+</ul>
+</li>
+<li><a href="#4-gateway%E6%9C%8D%E5%8A%A1%E7%BD%91%E5%85%B3">4 Gateway服务网关</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/dian-shang-xiang-mu-day1/">
+              <h3 class="post-title">
+                电商项目 day1：使用开源项目快速搭建
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
