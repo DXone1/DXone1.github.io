@@ -3,7 +3,7 @@
     <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>电商项目 番外：前端基础 | Gridea</title>
-<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636021015006">
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636027933458">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
 <link rel="alternate" type="application/atom+xml" title="电商项目 番外：前端基础 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
@@ -23,7 +23,7 @@ ECMAScript 6.0（ 以下简称 ES6， ECMAScript 是一种由 Ecma 国际(前身
       <div class="main-content">
         <div class="site-header">
   <a href="https://dxone1.github.io/">
-  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636021015006" alt="">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636027933458" alt="">
   </a>
   <h1 class="site-title">
     Gridea
@@ -83,7 +83,7 @@ ECMAScript 6.0（ 以下简称 ES6， ECMAScript 是一种由 Ecma 国际(前身
                 2021-11-04
               </span>
               <span>
-                26 min read
+                27 min read
               </span>
               
             </div>
@@ -1037,6 +1037,28 @@ v-show，当得到结果为 true 时，所在的元素才会被显示。使用di
 <h3 id="生命周期和钩子函数">生命周期和钩子函数</h3>
 <p>每个 Vue 实例在被创建时都要经过一系列的初始化过程 ： 创建实例， 装载模板， 渲染模板等等。 Vue 为生命周期中的每个状态都设置了钩子函数（监听函数） 。 每当 Vue 实例处于不同的生命周期时， 对应的函数就会被触发调用。<br>
 <img src="https://dxone1.github.io//post-images/1636020701181.png" alt="" loading="lazy"></p>
+<h3 id="vue的模块化开发">Vue的模块化开发</h3>
+<p>1、 npm install webpack -g<br>
+全局安装 webpack<br>
+2、 npm install -g @vue/cli-init<br>
+全局安装 vue 脚手架<br>
+3、 初始化 vue 项目；<br>
+vue init webpack appname： vue 脚手架使用 webpack 模板初始化一个 appname 项目<br>
+4、 启动 vue 项目；<br>
+项目的 package.json 中有 scripts， 代表我们能运行的命令<br>
+- npm start = npm run dev： 启动项目<br>
+- npm run build： 将项目打包</p>
+<h3 id="vue整合elementui">Vue整合ElementUI</h3>
+<p>1、 安装 element-ui: npm i element-ui<br>
+2、 在 main.js 中引入 element-ui 就可以全局使用了。</p>
+<pre><code class="language-js">import ElementUI from 'element-ui'
+import 'element-ui/lib/theme-chalk/index.css'
+Vue.use(ElementUI)
+</code></pre>
+<p>3、 将 App.vue 改为 element-ui 中的后台布局<br>
+4、 添加测试路由、 组件， 测试跳转逻辑<br>
+(1) 、 参照文档 el-menu 添加 router 属性<br>
+(2) 、 参照文档 el-menu-item 指定 index 需要跳转的地址</p>
 
               </div>
               <div class="toc-container">
@@ -1070,6 +1092,8 @@ v-show，当得到结果为 true 时，所在的元素才会被显示。使用di
 <li><a href="#%E8%BF%87%E6%BB%A4%E5%99%A8">过滤器</a></li>
 <li><a href="#vue%E7%BB%84%E4%BB%B6%E5%8C%96">Vue组件化</a></li>
 <li><a href="#%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E5%92%8C%E9%92%A9%E5%AD%90%E5%87%BD%E6%95%B0">生命周期和钩子函数</a></li>
+<li><a href="#vue%E7%9A%84%E6%A8%A1%E5%9D%97%E5%8C%96%E5%BC%80%E5%8F%91">Vue的模块化开发</a></li>
+<li><a href="#vue%E6%95%B4%E5%90%88elementui">Vue整合ElementUI</a></li>
 </ul>
 </li>
 </ul>
