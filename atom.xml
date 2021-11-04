@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-04T12:12:16.109Z</updated>
+    <updated>2021-11-04T12:15:47.376Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -1125,7 +1125,7 @@ public class MemberController {
 <ol start="2">
 <li>在需要管理配置的项目中编写bootstrap.properties文件，该文件会早于application.yml/application.properties生效</li>
 </ol>
-<pre><code class="language-properties">spring.application.name=mall-coupon
+<pre><code class="language-txt">spring.application.name=mall-coupon
 # 配置中心的地址
 spring.cloud.nacos.config.server-addr=127.0.0.1:8848
 </code></pre>
@@ -1162,7 +1162,7 @@ public class CouponController {
 <img src="https://dxone1.github.io//post-images/1635939434661.png" alt="" loading="lazy"><br>
 如何切换namespce?</li>
 </ol>
-<pre><code class="language-properties">spring.cloud.nacos.config.namespace=cb2b23c4-62ab-41e0-a131-70ae4b2c2772
+<pre><code class="language-txt">spring.cloud.nacos.config.namespace=cb2b23c4-62ab-41e0-a131-70ae4b2c2772
 </code></pre>
 <p>上面的是对应的命名空间的ID，在nacos图形界面里显示<br>
 也可以每个微服务之间互相隔离，建立不同的命名空间<br>
@@ -1171,7 +1171,7 @@ public class CouponController {
 4. 配置分组：默认属于DEFAULT_GROUP<br>
 <img src="https://dxone1.github.io//post-images/1635939995992.png" alt="" loading="lazy"><br>
 使用切换分组</p>
-<pre><code class="language-properties">spring.cloud.nacos.config.group=1111
+<pre><code class="language-txt">spring.cloud.nacos.config.group=1111
 </code></pre>
 <p><strong>本项目的约定</strong><br>
 每个微服务设置一个命名空间，使用配置分组区分环境 dev, test, prod</p>
@@ -1190,7 +1190,7 @@ spring:
 </code></pre>
 <p><img src="https://dxone1.github.io//post-images/1635940659201.png" alt="" loading="lazy"><br>
 2. 在bootstrap.properties中配置多配置集</p>
-<pre><code class="language-properties">spring.application.name=mall-coupon
+<pre><code class="language-txt">spring.application.name=mall-coupon
 # 配置中心的地址
 spring.cloud.nacos.config.server-addr=127.0.0.1:8848
 spring.cloud.nacos.config.namespace=527f3748-b8fe-44bb-8e4f-bf22371a0adc
@@ -1235,7 +1235,7 @@ spring:
         namespace: 99df8f0b-1740-4545-b75e-108da1f752ff
         group: dev
 </code></pre>
-<pre><code class="language-properties"># application.properties
+<pre><code class="language-txt"># application.properties
 spring.cloud.nacos.discovery.server-addr=127.0.0.1:8848
 spring.application.name=mall-gateway
 server.port=88

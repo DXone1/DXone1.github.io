@@ -3,7 +3,7 @@
     <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>电商项目 day2：分布式组件构建 | Gridea</title>
-<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636027933458">
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636028145260">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
 <link rel="alternate" type="application/atom+xml" title="电商项目 day2：分布式组件构建 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
@@ -24,7 +24,7 @@ gatew..." />
       <div class="main-content">
         <div class="site-header">
   <a href="https://dxone1.github.io/">
-  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636027933458" alt="">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636028145260" alt="">
   </a>
   <h1 class="site-title">
     Gridea
@@ -223,7 +223,7 @@ public class MemberController {
 <ol start="2">
 <li>在需要管理配置的项目中编写bootstrap.properties文件，该文件会早于application.yml/application.properties生效</li>
 </ol>
-<pre><code class="language-properties">spring.application.name=mall-coupon
+<pre><code class="language-txt">spring.application.name=mall-coupon
 # 配置中心的地址
 spring.cloud.nacos.config.server-addr=127.0.0.1:8848
 </code></pre>
@@ -260,7 +260,7 @@ public class CouponController {
 <img src="https://dxone1.github.io//post-images/1635939434661.png" alt="" loading="lazy"><br>
 如何切换namespce?</li>
 </ol>
-<pre><code class="language-properties">spring.cloud.nacos.config.namespace=cb2b23c4-62ab-41e0-a131-70ae4b2c2772
+<pre><code class="language-txt">spring.cloud.nacos.config.namespace=cb2b23c4-62ab-41e0-a131-70ae4b2c2772
 </code></pre>
 <p>上面的是对应的命名空间的ID，在nacos图形界面里显示<br>
 也可以每个微服务之间互相隔离，建立不同的命名空间<br>
@@ -269,7 +269,7 @@ public class CouponController {
 4. 配置分组：默认属于DEFAULT_GROUP<br>
 <img src="https://dxone1.github.io//post-images/1635939995992.png" alt="" loading="lazy"><br>
 使用切换分组</p>
-<pre><code class="language-properties">spring.cloud.nacos.config.group=1111
+<pre><code class="language-txt">spring.cloud.nacos.config.group=1111
 </code></pre>
 <p><strong>本项目的约定</strong><br>
 每个微服务设置一个命名空间，使用配置分组区分环境 dev, test, prod</p>
@@ -288,7 +288,7 @@ spring:
 </code></pre>
 <p><img src="https://dxone1.github.io//post-images/1635940659201.png" alt="" loading="lazy"><br>
 2. 在bootstrap.properties中配置多配置集</p>
-<pre><code class="language-properties">spring.application.name=mall-coupon
+<pre><code class="language-txt">spring.application.name=mall-coupon
 # 配置中心的地址
 spring.cloud.nacos.config.server-addr=127.0.0.1:8848
 spring.cloud.nacos.config.namespace=527f3748-b8fe-44bb-8e4f-bf22371a0adc
@@ -333,7 +333,7 @@ spring:
         namespace: 99df8f0b-1740-4545-b75e-108da1f752ff
         group: dev
 </code></pre>
-<pre><code class="language-properties"># application.properties
+<pre><code class="language-txt"># application.properties
 spring.cloud.nacos.discovery.server-addr=127.0.0.1:8848
 spring.application.name=mall-gateway
 server.port=88
