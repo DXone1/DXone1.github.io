@@ -1,0 +1,1089 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>电商项目 day3：业务三级分类 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636189647272">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="电商项目 day3：业务三级分类 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="以京东为例：
+
+对应的业务表
+
+直接使用数据sql填充数据
+
+获取分类的递归树状结构
+
+在CategoryEntity中增加一个表示孩子分类的属性，标记为不存在于表中
+
+/**
+* 子分类
+*/
+@TableField(exist = fa..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636189647272" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              电商项目 day3：业务三级分类
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-05
+              </span>
+              <span>
+                25 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>以京东为例：<br>
+<img src="https://dxone1.github.io//post-images/1636099884131.png" alt="" loading="lazy"><br>
+对应的业务表<br>
+<img src="https://dxone1.github.io//post-images/1636100030209.png" alt="" loading="lazy"><br>
+直接使用数据sql填充数据<br>
+<img src="https://dxone1.github.io//post-images/1636100222867.png" alt="" loading="lazy"></p>
+<h2 id="获取分类的递归树状结构">获取分类的递归树状结构</h2>
+<ol>
+<li>在CategoryEntity中增加一个表示孩子分类的属性，标记为不存在于表中</li>
+</ol>
+<pre><code class="language-java">/**
+* 子分类
+*/
+@TableField(exist = false)
+private List&lt;CategoryEntity&gt; children;
+</code></pre>
+<ol start="2">
+<li>编写Service方法</li>
+</ol>
+<pre><code class="language-java">/**
+    * 查出所有分类，组装成tree结构
+    * @return
+    */
+@Override
+public List&lt;CategoryEntity&gt; listWithTree() {
+    // 使用mybatis-plus的ServiceImpl提供baseMapper
+    List&lt;CategoryEntity&gt; entities = baseMapper.selectList(null);
+    // 组装为父子结构
+    // 1. 找一级分类
+    List&lt;CategoryEntity&gt; level1Menus = entities.stream().filter(categoryEntity -&gt;
+        categoryEntity.getParentCid() == 0
+    ).map(menu -&gt; {
+        menu.setChildren(getChildren(menu, entities));
+        return menu;
+    }).sorted((menu1, menu2) -&gt; {
+        return (menu1.getSort() == null? 0: menu1.getSort()) - (menu2.getSort() == null? 0: menu2.getSort());
+    }).collect(Collectors.toList());
+
+    return level1Menus;
+}
+
+/**
+    * 递归查找所有菜单的子菜单
+    * @param root 当前菜单
+    * @param all 所有菜单
+    * @return 当前菜单的子菜单列表
+    */
+private List&lt;CategoryEntity&gt; getChildren(CategoryEntity root, List&lt;CategoryEntity&gt; all) {
+    List&lt;CategoryEntity&gt; children = all.stream().filter(categoryEntity -&gt; {
+        return categoryEntity.getParentCid() == root.getCatId();
+    }).map(categoryEntity -&gt; {
+        categoryEntity.setChildren(getChildren(categoryEntity, all));
+        return categoryEntity;
+    }).sorted((menu1, menu2) -&gt; {
+        return (menu1.getSort() == null? 0: menu1.getSort()) - (menu2.getSort() == null? 0: menu2.getSort());
+    }).collect(Collectors.toList());
+
+    return children;
+}
+</code></pre>
+<h2 id="配置网关路由和路径">配置网关路由和路径</h2>
+<p>开启renren-fast前端脚手架，通过可视化界面添加</p>
+<ul>
+<li>一级菜单 商品系统</li>
+<li>二级系统 分类维护<br>
+<img src="https://dxone1.github.io//post-images/1636103513046.png" alt="" loading="lazy"><br>
+该页面的路由为http://localhost:8001/#/product-category<br>
+在前端项目对应的目录定义如下：<br>
+<img src="https://dxone1.github.io//post-images/1636103880194.png" alt="" loading="lazy"><br>
+从elementUI查找树形控件将其放入category.vue页面中</li>
+</ul>
+<ol>
+<li>修改前端的基地址为网关gateway地址</li>
+</ol>
+<pre><code class="language-js">// api接口请求地址
+window.SITE_CONFIG['baseUrl'] = 'http://localhost:88/api';
+</code></pre>
+<ol start="2">
+<li>将renren-fast注册到nacos服务发现，并将网关配置到该服务</li>
+</ol>
+<pre><code class="language-yaml"># mall-gateway.application.yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: admin_route
+          uri: lb://renren-fast
+          predicates:
+            - Path=/api/**
+            #将localhost:88/api/** -&gt; localhost:8080:/renren-fast/**
+          filters:
+            - RewritePath=/api/(?&lt;segment&gt;.*),/renren-fast/$\{segment}
+#定义前端发送的请求都带有 /api前缀
+</code></pre>
+<ol start="3">
+<li>解决浏览器限制js跨域问题<br>
+<img src="https://dxone1.github.io//post-images/1636112033591.png" alt="" loading="lazy"><br>
+跨域流程：<br>
+<img src="https://dxone1.github.io//post-images/1636112201174.png" alt="" loading="lazy"></li>
+</ol>
+<p><strong>方法：</strong></p>
+<ol>
+<li>使用Nginx将其都部署为同一个域<br>
+<img src="https://dxone1.github.io//post-images/1636112332326.png" alt="" loading="lazy"></li>
+<li>配置当前请求允许跨域：添加响应头</li>
+</ol>
+<ul>
+<li>Access-Control-Allow-Origin：支持哪些来源的请求跨域</li>
+<li>Access-Control-Allow-Methods：支持哪些方法跨域</li>
+<li>Access-Control-Allow-Credentials：跨域请求默认不包含cookie，设置为true可以包含 cookie</li>
+<li>Access-Control-Expose-Headers：跨域请求暴露的字段<br>
+CORS请求时，XMLHttpRequest对象的getResponseHeader()方法只能拿到6个基本字段：  Cache-Control、Content-Language、Content-Type、Expires、Last-Modified、Pragma。如 果想拿到其他字段，就必须在Access-Control-Expose-Headers里面指定。<br>
+Access-Control-Max-Age：表明该响应的有效时间为多少秒。在有效时间内，浏览器无 须为同一请求再次发起预检请求。请注意，浏览器自身维护了一个最大有效时间，如果 该首部字段的值超过了最大有效时间，将不会生效。只需要在网关配置filter添加响应头即可<br>
+在网关添加一个组件即可完成跨域</li>
+</ul>
+<pre><code class="language-java">// com.dong.mall.gateway.config.MallCorsConfiguration
+@Configuration
+public class MallCorsConfiguration {
+
+    @Bean
+    public CorsWebFilter corsWebFilter() {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        CorsConfiguration corsConfiguration = new CorsConfiguration();
+        // 配置跨域
+        corsConfiguration.addAllowedHeader(&quot;*&quot;);
+        corsConfiguration.addAllowedMethod(&quot;*&quot;);
+        corsConfiguration.addAllowedOrigin(&quot;*&quot;);
+        corsConfiguration.setAllowCredentials(true);
+
+        source.registerCorsConfiguration(&quot;/**&quot;, corsConfiguration);
+        return new CorsWebFilter(source);
+    }
+}
+</code></pre>
+<h2 id="配置三级列表展示">配置三级列表展示</h2>
+<p>前面的配置中将所有的动态请求，即<code>/api</code>起头的都通过网关转给了renren-fast，三级列表需要装给product服务。注意精确路由配在前面优先匹配</p>
+<pre><code class="language-yaml">- id: product_route
+    uri: lb://mall-product
+    predicates:
+    - Path=/api/product/**
+    # 路径重写
+    filters:
+    - RewritePath=/api/(?&lt;segment&gt;.*),/$\{segment}\
+    # localhost:88/api/product/** -&gt; localhost:10000/product/**
+</code></pre>
+<p>将mall-product的配置放在nacos注册中心中</p>
+<pre><code class="language-txt">spring.application.name=mall-product
+spring.cloud.nacos.config.server-addr=127.0.0.1:8848
+spring.cloud.nacos.config.namespace=productbc5693c8-0926-49a5-89fe-e597de2e2740
+</code></pre>
+<p>已经拿到数据了<br>
+<img src="https://dxone1.github.io//post-images/1636114988673.png" alt="" loading="lazy"><br>
+调整前端项目，将其展示到页面上</p>
+<h2 id="分类删除功能">分类删除功能</h2>
+<p>没有子菜单且被引用的可以删除<br>
+前端同样使用element-ui的组件构建：使用 scoped slot<br>
+在category.vue中将template块添加插槽</p>
+<pre><code class="language-js">&lt;template&gt;
+  &lt;el-tree :data=&quot;menus&quot; :props=&quot;defaultProps&quot; @node-click=&quot;handleNodeClick&quot;&gt;
+    &lt;span class=&quot;custom-tree-node&quot; slot-scope=&quot;{ node, data }&quot;&gt;
+      &lt;span&gt;{{ node.label }}&lt;/span&gt;
+      &lt;span&gt;
+        &lt;el-button type=&quot;text&quot; size=&quot;mini&quot; @click=&quot;() =&gt; append(data)&quot;&gt;
+          Append
+        &lt;/el-button&gt;
+        &lt;el-button type=&quot;text&quot; size=&quot;mini&quot; @click=&quot;() =&gt; remove(node, data)&quot;&gt;
+          Delete
+        &lt;/el-button&gt;
+      &lt;/span&gt;
+    &lt;/span&gt;
+  &lt;/el-tree&gt;
+&lt;/template&gt;
+</code></pre>
+<p>效果如图<br>
+<img src="https://dxone1.github.io//post-images/1636116542496.png" alt="" loading="lazy"><br>
+定义：只有没有子菜单才能delete，只有一二级菜单才能append</p>
+<ol>
+<li>后端代码<br>
+需要配置逻辑删除，在逻辑删除字段添加@TableLogic逻辑删除注解</li>
+</ol>
+<pre><code class="language-java">@Override
+public void removeMenuByIds(List&lt;Long&gt; asList) {
+    // TODO 1.检查当前菜单是否被其他地方引用，否则删除菜单
+    // 逻辑删除：将标识位标为0不显示
+    baseMapper.deleteBatchIds(asList);
+}
+
+// entity
+@TableLogic(value = &quot;1&quot;, delval = &quot;0&quot;)
+private Integer showStatus;
+</code></pre>
+<ol start="2">
+<li>前后协调<br>
+在前端编写remove(node, data)方法，通过post请求给后端（通过网关）删除操作。再请求页面刷新即可。需要完善的功能为：</li>
+</ol>
+<ul>
+<li>消息提示框</li>
+<li>删除后不能收起分栏</li>
+<li>删除成功应当由消息框<br>
+最终的前端代码如下：</li>
+</ul>
+<pre><code class="language-js">&lt;template&gt;
+  &lt;el-tree
+    :data=&quot;menus&quot;
+    show-checkbox
+    node-key=&quot;catId&quot;
+    :props=&quot;defaultProps&quot;
+    :expand-on-click-node=&quot;false&quot;
+    :default-expanded-keys=&quot;expandedKey&quot;
+  &gt;
+    &lt;span class=&quot;custom-tree-node&quot; slot-scope=&quot;{ node, data }&quot;&gt;
+      &lt;span&gt;{{ node.label }}&lt;/span&gt;
+      &lt;span&gt;
+        &lt;!-- 通过v-if完成菜单的显示条件 --&gt;
+        &lt;el-button
+          v-if=&quot;node.level &lt;= 2&quot;
+          type=&quot;text&quot;
+          size=&quot;mini&quot;
+          @click=&quot;() =&gt; append(data)&quot;
+        &gt;
+          Append
+        &lt;/el-button&gt;
+        &lt;el-button
+          v-if=&quot;node.childNodes.length == 0&quot;
+          type=&quot;text&quot;
+          size=&quot;mini&quot;
+          @click=&quot;() =&gt; remove(node, data)&quot;
+        &gt;
+          Delete
+        &lt;/el-button&gt;
+      &lt;/span&gt;
+    &lt;/span&gt;
+  &lt;/el-tree&gt;
+&lt;/template&gt;
+
+&lt;script&gt;
+//这里可以导入其他文件（比如： 组件， 工具 js， 第三方插件 js， json文件， 图片文件等等）
+//例如： import 《组件名称》 from '《组件路径》 ';
+
+export default {
+  //import 引入的组件需要注入到对象中才能使用
+  components: {},
+  props: {},
+  data() {
+    return {
+      menus: [],
+      // 默认展开的属性
+      expandedKey: [],
+      defaultProps: {
+        // 使用children分级
+        children: &quot;children&quot;,
+        // 取出name属性作为显示的
+        label: &quot;name&quot;,
+      },
+    };
+  },
+  methods: {
+    getMenus() {
+      this.$http({
+        url: this.$http.adornUrl(&quot;/product/category/list/tree&quot;),
+        method: &quot;get&quot;,
+        // 解构，取出data同名属性
+        // 信息存在于data.data.data中
+      }).then(({ data }) =&gt; {
+        console.log(&quot;成功获取菜单数据：&quot;, data.data);
+        // 提供给data中的menus实例
+        this.menus = data.data;
+      });
+    },
+    append(data) {
+      console.log(&quot;append&quot;, data);
+    },
+    remove(node, data) {
+      var ids = [data.catId];
+    
+      // 显示删除的消息提示
+      this.$confirm(`是否删除【${data.name}】菜单?`, &quot;提示&quot;, {
+        confirmButtonText: &quot;确定&quot;,
+        cancelButtonText: &quot;取消&quot;,
+        type: &quot;warning&quot;,
+      })
+        .then(() =&gt; {
+          this.$http({
+            url: this.$http.adornUrl(&quot;/product/category/delete&quot;),
+            method: &quot;post&quot;,
+            data: this.$http.adornData(ids, false),
+          }).then(({ data }) =&gt; {
+            console.log(&quot;删除成功...&quot;);
+            // 重新请求菜单并展示
+            this.getMenus();
+            // 设置默认展开菜单
+            this.expandedKey = [node.parent.data.catId]
+          });
+          // 消息提示：删除成功
+          this.$message({
+            message: &quot;菜单删除成功&quot;,
+            type: &quot;success&quot;,
+          });
+        })
+        .catch(() =&gt; {
+
+        });
+    },
+  },
+
+  //计算属性 类似于 data 概念
+  computed: {},
+  //监控 data 中的数据变化
+  watch: {},
+  //方法集合
+
+  //生命周期 - 创建完成（可以访问当前 this 实例）
+  created() {
+    this.getMenus();
+  },
+  //生命周期 - 挂载完成（可以访问 DOM 元素）
+  mounted() {},
+  beforeCreate() {}, //生命周期 - 创建之前
+  beforeMount() {}, //生命周期 - 挂载之前
+  beforeUpdate() {}, //生命周期 - 更新之前
+  updated() {}, //生命周期 - 更新之后
+  beforeDestroy() {}, //生命周期 - 销毁之前
+  destroyed() {}, //生命周期 - 销毁完成
+  activated() {}, //如果页面有 keep-alive 缓存功能， 这个函数会触发
+};
+&lt;/script&gt;
+&lt;style scoped&gt;
+&lt;/style&gt;
+</code></pre>
+<p>效果：<br>
+<img src="https://dxone1.github.io//post-images/1636166899176.png" alt="" loading="lazy"></p>
+<h2 id="分类增加功能">分类增加功能</h2>
+<ol>
+<li>先处理前端的代码<br>
+我们希望在插入时会出现对话框可以写入添加的名字，并自动计算所需的数值（方便插入数据库）。首先在template中添加一个和el-dialog，并嵌入一个对话框。对话框输入框与属性绑定，设置对话框的回调函数。</li>
+</ol>
+<pre><code class="language-js">&lt;!-- 表单中的form, 和category绑定 --&gt;
+&lt;el-dialog title=&quot;提示&quot; :visible.sync=&quot;dialogVisible&quot; width=&quot;30%&quot;&gt;
+    &lt;el-form :model=&quot;category&quot;&gt;
+    &lt;el-form-item label=&quot;分类名称&quot;&gt;
+        &lt;!-- 输入框和category.name双向绑定 --&gt;
+        &lt;el-input v-model=&quot;category.name&quot; autocomplete=&quot;off&quot;&gt;&lt;/el-input&gt;
+    &lt;/el-form-item&gt;
+    &lt;/el-form&gt;
+
+    &lt;span slot=&quot;footer&quot; class=&quot;dialog-footer&quot;&gt;
+    &lt;el-button @click=&quot;dialogVisible = false&quot;&gt;取 消&lt;/el-button&gt;
+    &lt;!-- 确定调用addCategory函数 --&gt;
+    &lt;el-button type=&quot;primary&quot; @click=&quot;addCategory&quot;&gt;确 定&lt;/el-button&gt;
+    &lt;/span&gt;
+&lt;/el-dialog&gt;
+</code></pre>
+<p>设置一组数据属性</p>
+<pre><code class="language-js">category: { name: &quot;&quot;, parentCid: 0, catLevel: 0, showStatus: 1, sort: 0 },
+</code></pre>
+<p>在append()方法中添加相应的计算流程</p>
+<pre><code class="language-js">append(data) {
+    console.log(&quot;append&quot;, data);
+    this.dialogVisible = true;
+    // 在append时构造好category对象，方便插入
+    this.category.parentCid = data.catId;
+    this.category.catLevel = data.catLevel * 1 + 1;
+},
+</code></pre>
+<p>编写<code>addCategory()</code>的回调函数</p>
+<pre><code class="language-js">// 添加分类的方法
+addCategory() {
+    console.log(&quot;提交的数据,&quot;, this.category);
+    this.$http({
+    url: this.$http.adornUrl(&quot;/product/category/save&quot;),
+    method: &quot;post&quot;,
+    data: this.$http.adornData(this.category, false),
+    }).then(({ data }) =&gt; {
+    // 消息提示：保存成功
+    this.$message({
+        message: &quot;菜单保存成功&quot;,
+        type: &quot;success&quot;,
+    });
+    // 关闭对话框并刷新
+    this.dialogVisible = false;
+    this.getMenus();
+    this.expandedKey = [this.category.parentCid];
+    });
+}
+</code></pre>
+<p>效果<br>
+<img src="https://dxone1.github.io//post-images/1636168720087.png" alt="" loading="lazy"></p>
+<h2 id="分类修改功能">分类修改功能</h2>
+<p>涉及到表单复用，回显等问题，代码如下</p>
+<pre><code class="language-js">&lt;template&gt;
+  &lt;div&gt;
+    &lt;el-tree
+      :data=&quot;menus&quot;
+      show-checkbox
+      node-key=&quot;catId&quot;
+      :props=&quot;defaultProps&quot;
+      :expand-on-click-node=&quot;false&quot;
+      :default-expanded-keys=&quot;expandedKey&quot;
+    &gt;
+      &lt;span class=&quot;custom-tree-node&quot; slot-scope=&quot;{ node, data }&quot;&gt;
+        &lt;span&gt;{{ node.label }}&lt;/span&gt;
+        &lt;span&gt;
+          &lt;!-- 通过v-if完成菜单的显示条件 --&gt;
+          &lt;el-button
+            v-if=&quot;node.level &lt;= 2&quot;
+            type=&quot;text&quot;
+            size=&quot;mini&quot;
+            @click=&quot;() =&gt; append(data)&quot;
+          &gt;
+            Append
+          &lt;/el-button&gt;
+          &lt;el-button
+            v-if=&quot;node.childNodes.length == 0&quot;
+            type=&quot;text&quot;
+            size=&quot;mini&quot;
+            @click=&quot;() =&gt; remove(node, data)&quot;
+          &gt;
+            Delete
+          &lt;/el-button&gt;
+          &lt;el-button type=&quot;text&quot; size=&quot;mini&quot; @click=&quot;() =&gt; edit(data)&quot;&gt;
+            Edit
+          &lt;/el-button&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/el-tree&gt;
+
+    &lt;!-- 表单中的form, 和category绑定 --&gt;
+    &lt;el-dialog
+      :title=&quot;title&quot;
+      :visible.sync=&quot;dialogVisible&quot;
+      width=&quot;30%&quot;
+      :close-on-click-modal=&quot;false&quot;
+    &gt;
+      &lt;el-form :model=&quot;category&quot;&gt;
+        &lt;el-form-item label=&quot;分类名称&quot;&gt;
+          &lt;!-- 输入框和category.name双向绑定 --&gt;
+          &lt;el-input v-model=&quot;category.name&quot; autocomplete=&quot;off&quot;&gt;&lt;/el-input&gt;
+        &lt;/el-form-item&gt;
+        &lt;el-form-item label=&quot;图标&quot;&gt;
+          &lt;!-- 输入框和category.name双向绑定 --&gt;
+          &lt;el-input v-model=&quot;category.icon&quot; autocomplete=&quot;off&quot;&gt;&lt;/el-input&gt;
+        &lt;/el-form-item&gt;
+        &lt;el-form-item label=&quot;计量单位&quot;&gt;
+          &lt;!-- 输入框和category.name双向绑定 --&gt;
+          &lt;el-input
+            v-model=&quot;category.productUnit&quot;
+            autocomplete=&quot;off&quot;
+          &gt;&lt;/el-input&gt;
+        &lt;/el-form-item&gt;
+      &lt;/el-form&gt;
+
+      &lt;span slot=&quot;footer&quot; class=&quot;dialog-footer&quot;&gt;
+        &lt;el-button @click=&quot;dialogVisible = false&quot;&gt;取 消&lt;/el-button&gt;
+        &lt;!-- 确定调用addCategory函数 --&gt;
+        &lt;el-button type=&quot;primary&quot; @click=&quot;submitData&quot;&gt;确 定&lt;/el-button&gt;
+      &lt;/span&gt;
+    &lt;/el-dialog&gt;
+  &lt;/div&gt;
+&lt;/template&gt;
+
+&lt;script&gt;
+//这里可以导入其他文件（比如： 组件， 工具 js， 第三方插件 js， json文件， 图片文件等等）
+//例如： import 《组件名称》 from '《组件路径》 ';
+
+export default {
+  //import 引入的组件需要注入到对象中才能使用
+  components: {},
+  props: {},
+  data() {
+    return {
+      category: {
+        title: &quot;&quot;,
+        dialogType: &quot;&quot;, //想复用对话框, add/edit表示
+        name: &quot;&quot;,
+        parentCid: 0,
+        catLevel: 0,
+        showStatus: 1,
+        sort: 0,
+        catId: null,
+        icon: &quot;&quot;,
+        productUnit: &quot;&quot;,
+      },
+      dialogVisible: false,
+      menus: [],
+      // 默认展开的属性
+      expandedKey: [],
+      defaultProps: {
+        // 使用children分级
+        children: &quot;children&quot;,
+        // 取出name属性作为显示的
+        label: &quot;name&quot;,
+      },
+    };
+  },
+  methods: {
+    getMenus() {
+      this.$http({
+        url: this.$http.adornUrl(&quot;/product/category/list/tree&quot;),
+        method: &quot;get&quot;,
+        // 解构，取出data同名属性
+      }).then(({ data }) =&gt; {
+        console.log(&quot;成功获取菜单数据：&quot;, data.data);
+        // 提供给data中的menus实例
+        this.menus = data.data;
+      });
+    },
+    append(data) {
+      console.log(&quot;append&quot;, data);
+      this.dialogType = &quot;add&quot;;
+      // 对话框类型
+      this.dialogVisible = true;
+      // 对话框标题
+      this.title = &quot;添加分类&quot;;
+      // 在append时构造好category对象，方便插入
+      this.category.parentCid = data.catId;
+      this.category.catLevel = data.catLevel * 1 + 1;
+      // 去除回显
+      this.category.name = &quot;&quot;;
+      this.category.catId = null;
+      this.category.icon = &quot;&quot;;
+      this.category.productUnit = &quot;&quot;;
+      this.category.sort = 0;
+      this.category.showStatus = 1;
+    },
+    remove(node, data) {
+      var ids = [data.catId];
+
+      // 显示删除的消息提示
+      this.$confirm(`是否删除【${data.name}】菜单?`, &quot;提示&quot;, {
+        confirmButtonText: &quot;确定&quot;,
+        cancelButtonText: &quot;取消&quot;,
+        type: &quot;warning&quot;,
+      })
+        .then(() =&gt; {
+          this.$http({
+            url: this.$http.adornUrl(&quot;/product/category/delete&quot;),
+            method: &quot;post&quot;,
+            data: this.$http.adornData(ids, false),
+          }).then(({ data }) =&gt; {
+            console.log(&quot;删除成功...&quot;);
+            // 重新请求菜单并展示
+            this.getMenus();
+            // 设置默认展开菜单
+            this.expandedKey = [node.parent.data.catId];
+          });
+          // 消息提示：删除成功
+          this.$message({
+            message: &quot;菜单删除成功&quot;,
+            type: &quot;success&quot;,
+          });
+        })
+        .catch(() =&gt; {});
+    },
+    edit(data) {
+      console.log(&quot;修改的数据：&quot;, data);
+      this.dialogType = &quot;edit&quot;;
+      // 对话框标题
+      this.title = &quot;修改分类&quot;;
+      // 开启内嵌表单
+      this.dialogVisible = true;
+      // 发送请求获取最新数据
+      this.$http({
+        url: this.$http.adornUrl(`/product/category/info/${data.catId}`),
+        method: &quot;get&quot;,
+      }).then(({ data }) =&gt; {
+        console.log(&quot;回显数据&quot;, data);
+        // 将当前分类名回显
+        this.category.name = data.data.name;
+        // 修改id
+        this.category.catId = data.data.catId;
+        this.category.icon = data.data.icon;
+        this.category.productUnit = data.data.productUnit;
+        this.category.parentCid = data.data.parentCid;
+        this.category.catLevel = data.data.catLevel;
+        this.category.sort = data.data.sort;
+        this.category.showStatus = data.data.showStatus;
+      });
+    },
+    // 添加分类的方法
+    addCategory() {
+      console.log(&quot;提交的数据,&quot;, this.category);
+      this.$http({
+        url: this.$http.adornUrl(&quot;/product/category/save&quot;),
+        method: &quot;post&quot;,
+        data: this.$http.adornData(this.category, false),
+      }).then(({ data }) =&gt; {
+        // 消息提示：保存成功
+        this.$message({
+          message: &quot;菜单保存成功&quot;,
+          type: &quot;success&quot;,
+        });
+        // 关闭对话框并刷新
+        this.dialogVisible = false;
+        this.getMenus();
+        this.expandedKey = [this.category.parentCid];
+      });
+    },
+    // 修改分类的方法
+    editCategory() {
+      var { catId, name, icon, productUnit } = this.category;
+      this.$http({
+        url: this.$http.adornUrl(&quot;/product/category/update&quot;),
+        method: &quot;post&quot;,
+        data: this.$http.adornData(
+          // 只发需要修改的部分
+          { catId, name, icon, productUnit },
+          false
+        ),
+      }).then(({ data }) =&gt; {
+        // 消息提示：修改成功
+        this.$message({
+          message: &quot;菜单修改成功&quot;,
+          type: &quot;success&quot;,
+        });
+        // 关闭对话框并刷新
+        this.dialogVisible = false;
+        this.getMenus();
+        this.expandedKey = [this.category.parentCid];
+      });
+    },
+    // 分支复用对话框
+    submitData() {
+      if (&quot;add&quot; == this.dialogType) {
+        this.addCategory();
+      }
+      if (&quot;edit&quot; == this.dialogType) {
+        this.editCategory();
+      }
+    },
+  },
+
+  //计算属性 类似于 data 概念
+  computed: {},
+  //监控 data 中的数据变化
+  watch: {},
+  //方法集合
+
+  //生命周期 - 创建完成（可以访问当前 this 实例）
+  created() {
+    this.getMenus();
+  },
+  //生命周期 - 挂载完成（可以访问 DOM 元素）
+  mounted() {},
+  beforeCreate() {}, //生命周期 - 创建之前
+  beforeMount() {}, //生命周期 - 挂载之前
+  beforeUpdate() {}, //生命周期 - 更新之前
+  updated() {}, //生命周期 - 更新之后
+  beforeDestroy() {}, //生命周期 - 销毁之前
+  destroyed() {}, //生命周期 - 销毁完成
+  activated() {}, //如果页面有 keep-alive 缓存功能， 这个函数会触发
+};
+&lt;/script&gt;
+&lt;style scoped&gt;
+&lt;/style&gt;
+</code></pre>
+<h2 id="拖拽功能">拖拽功能</h2>
+<p>实现通过拖拽节点改变节点的父子关系，通过 draggable 属性可让节点变为可拖拽。</p>
+<ol>
+<li>不允许拖拽出第四层，所有要有一些判断，通过allow-drop设置</li>
+</ol>
+<pre><code class="language-js">allowDrop(draggingNode, dropNode, type) {
+    // 被拖动的当前节点和父节点总层数不能大于三
+    // 1. 当前节点层数
+    console.log(draggingNode, dropNode, type)
+    // 统计当前被拖动节点总层数
+    this.countNodeLevel(draggingNode.data);
+    let deep = this.maxLevel - draggingNode.data.catLevel + 1;
+    // 拖动到里面
+    if(type == &quot;inner&quot;) {
+        return deep + dropNode.level &lt;= 3;
+    }
+    // 否则按前后拖动计算
+    return deep + dropNode.parent.level &lt;= 3;
+},
+countNodeLevel(node) {
+    if(node.children != null &amp;&amp; node.children.length &gt; 0) {
+        for(let i=0; i &lt; node.children.length; i++) {
+            if(node.children[i].catLevel &gt; this.maxLevel) {
+                this.maxLevel = node.children[i].catLevel;
+            }
+            this.countNodeLevel(node.children[i]);
+        }
+    }
+},
+</code></pre>
+<ol start="2">
+<li>前端收集更改的数据，用于修改后端数据库<br>
+使用node-drop，注意一旦拖拽就会改变如下内容：</li>
+</ol>
+<ul>
+<li>拖拽节点和子节点的层级</li>
+<li>拖拽节点和兄弟节点的sort</li>
+<li>当前节点的父id<br>
+根据拖拽的类型不同也需要做出区分，实现如下：<br>
+先使用<code>@node-drop=&quot;handleDrop&quot;</code>启动拖拽回调，编写业务代码如下</li>
+</ul>
+<pre><code class="language-js">// 处理拖动事件
+handleDrop(draggingNode, dropNode, dropType, ev) {
+    console.log(&quot;tree drop: &quot;, draggingNode, dropNode, dropType);
+    // 1.获取当前拖拽节点的最新父节点id
+    let pCid = 0;
+    let siblings = null;
+    // 进入方式不同
+    if (dropType == &quot;before&quot; || dropType == &quot;after&quot;) {
+    pCid =
+        dropNode.parent.data.catId == undefined
+        ? 0
+        : dropNode.parent.data.catId;
+    siblings = dropNode.parent.childNodes;
+    } else {
+    pCid = dropNode.data.catId;
+    siblings = dropNode.childNodes;
+    }
+    // 2.获取当前拖拽节点的sort
+    for (let i = 0; i &lt; siblings.length; i++) {
+    // 如果遍历的是正在拖拽的节点
+    // 其父节点也会被改变
+    if (siblings[i].data.catId == draggingNode.data.catId) {
+        let catLevel = draggingNode.level;
+        // 如果当前层级发生了变化
+        if (siblings[i].level != draggingNode.level) {
+        // 修改当前节点的层级
+        catLevel = siblings[i].level;
+        // 递归修改子节点的层级
+        this.updateChildNodeLevel(siblings[i]);
+        }
+        this.updateNodes.push({
+        catId: siblings[i].data.catId,
+        sort: i,
+        parentCid: pCid,
+        catLevel: catLevel,
+        });
+    } else {
+        this.updateNodes.push({ catId: siblings[i].data.catId, sort: i });
+    }
+    }
+    console.log(&quot;updateNodes:&quot;, this.updateNodes);
+    // 3.获取当前拖拽节点的最新层级
+},
+// 递归改变子节点的层级
+updateChildNodeLevel(node) {
+    if (node.childNodes.length &gt; 0) {
+    for (let i = 0; i &lt; node.childNodes.length; i++) {
+        var cNode = node.childNodes[i].data;
+        this.updateNodes.push({
+        catId: cNode.catId,
+        catLevel: node.childNodes[i].level,
+        });
+        this.updateChildNodeLevel(node.childNodes[i]);
+    }
+    }
+},
+</code></pre>
+<p>注意定义了一个新的data<code>updateNodes: [], // 需要修改的节点</code>，收集修改的数据<br>
+3. 后端代码和前端调用<br>
+后端直接用Servive自动生成的批量修改接口即可</p>
+<pre><code class="language-java">/**
+* 处理拖拽业务的批量更新
+* @param category 分类数组
+* @return 修改成功消息
+*/
+@RequestMapping(&quot;/update/sort&quot;)
+public R updateSort(@RequestBody CategoryEntity[] category){
+    categoryService.updateBatchById(Arrays.asList(category));
+    return R.ok();
+}
+</code></pre>
+<p>前端需要做以下工作：</p>
+<ul>
+<li>发送http请求</li>
+<li>刷新页面并打开新的父节点层级</li>
+<li><strong>重新初始化最大节点深度和需更新的节点信息</strong></li>
+</ul>
+<pre><code class="language-js"> // 3.获取当前拖拽节点的最新层级
+// 将数据发送给后端
+this.$http({
+    url: this.$http.adornUrl(&quot;/product/category/update/sort&quot;),
+    method: &quot;post&quot;,
+    data: this.$http.adornData(this.updateNodes, false),
+}).then(({ data }) =&gt; {
+    // 消息提示：菜单顺序等修改成功
+    this.$message({
+        message: &quot;菜单顺序等修改成功&quot;,
+        type: &quot;success&quot;,
+    });
+    // 还需要刷新菜单并展开新父节点
+    this.getMenus();
+    this.expandedKey = [pCid];
+    // 记得完成后要及时复原需更新的节点和深度信息
+    this.updateNodes = [];
+    this.maxLevel = 0;
+});
+</code></pre>
+<p>效果如图所示<br>
+<img src="https://dxone1.github.io//post-images/1636185979878.png" alt="" loading="lazy"></p>
+<h2 id="优化-批量拖拽功能">优化-批量拖拽功能</h2>
+<ol>
+<li>拖拽很容易误操作，首先添加一个开启拖拽的开关</li>
+</ol>
+<pre><code class="language-js">&lt;el-switch v-model=&quot;draggable&quot; active-text=&quot;开启拖拽&quot; inactive-text=&quot;关闭拖拽&quot;&gt;
+&lt;/el-switch&gt;
+&lt;el-tree
+    :data=&quot;menus&quot;
+    show-checkbox
+    node-key=&quot;catId&quot;
+    :props=&quot;defaultProps&quot;
+    :expand-on-click-node=&quot;false&quot;
+    :default-expanded-keys=&quot;expandedKey&quot;
+    :draggable=&quot;draggable&quot;
+    :allow-drop=&quot;allowDrop&quot;
+    @node-drop=&quot;handleDrop&quot;
+&gt;
+</code></pre>
+<ol start="2">
+<li>添加按钮，只有提交的时候才提交给数据库</li>
+</ol>
+<pre><code class="language-js">&lt;el-button v-if=&quot;draggable&quot; @click=&quot;batchSave&quot;&gt;批量保存&lt;/el-button&gt;
+</code></pre>
+<ol start="3">
+<li>各种修改，完成功能：</li>
+</ol>
+<ul>
+<li>将发送请求变更为批量保存之后</li>
+<li>将所有的变更项的父节点记录下来，以后要一起展开</li>
+</ul>
+<pre><code class="language-js"> // 批量保存拖动功能
+batchSave() {
+    // 将数据发送给后端
+    this.$http({
+        url: this.$http.adornUrl(&quot;/product/category/update/sort&quot;),
+        method: &quot;post&quot;,
+        data: this.$http.adornData(this.updateNodes, false),
+    }).then(({ data }) =&gt; {
+        // 消息提示：菜单顺序等修改成功
+        this.$message({
+            message: &quot;菜单顺序等修改成功&quot;,
+            type: &quot;success&quot;,
+        });
+        // 还需要刷新菜单并展开新父节点
+        this.getMenus();
+        this.expandedKey = this.pCid;
+        // 记得完成后要及时复原需更新的节点和深度信息
+        this.updateNodes = [];
+        this.maxLevel = 0;
+        // this.pCid = 0;
+    });
+},
+</code></pre>
+<p>最终效果如图<br>
+<img src="https://dxone1.github.io//post-images/1636188005367.png" alt="" loading="lazy"></p>
+<h2 id="分类批量删除功能">分类批量删除功能</h2>
+<p>添加一个危险样式的按钮：批量删除，绑定到一个方法上<br>
+获取tree中的所有被选中的节点，element-ui提供了相关方法，但首先要给el-tree添加一个标志，从而能拿到该组件</p>
+<pre><code class="language-js">ref=&quot;menuTree&quot;
+</code></pre>
+<p>编写批量删除的逻辑</p>
+<pre><code class="language-js">// 批量删除功能
+batchDelete() {
+    // 获取所有全选中节点
+    // 两个参数：是否只包含叶子节点、是否包含半选节点，默认都是false,符合业务逻辑
+    let checkedNodes = this.$refs.menuTree.getCheckedNodes();
+    console.log(&quot;被选中的元素:&quot;, checkedNodes);
+    // 只要向后端发送批量删除请求即可
+    // 要删除的ID集合
+    let catIds = [];
+    let names = [];
+    for (let i = 0; i &lt; checkedNodes.length; i++) {
+        catIds.push(checkedNodes[i].catId);
+        names.push(checkedNodes[i].name);
+    }
+    // 确认和删除逻辑
+    this.$confirm(`是否批量删除【${names}】菜单?`, &quot;提示&quot;, {
+        confirmButtonText: &quot;确定&quot;,
+        cancelButtonText: &quot;取消&quot;,
+        type: &quot;warning&quot;,
+    })
+    .then(() =&gt; {
+        this.$http({
+            url: this.$http.adornUrl(&quot;/product/category/delete&quot;),
+            method: &quot;post&quot;,
+            data: this.$http.adornData(catIds, false),
+            }).then(({ data }) =&gt; {
+            console.log(&quot;删除成功...&quot;);
+            // 消息提示：删除成功
+            this.$message({
+                message: &quot;菜单批量删除成功&quot;,
+                type: &quot;success&quot;,
+            });
+            // 重新请求菜单并展示
+            this.getMenus();
+        });
+    })
+    .catch(() =&gt; {});
+}
+</code></pre>
+<p>效果如下<br>
+<img src="https://dxone1.github.io//post-images/1636189429981.png" alt="" loading="lazy"></p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E8%8E%B7%E5%8F%96%E5%88%86%E7%B1%BB%E7%9A%84%E9%80%92%E5%BD%92%E6%A0%91%E7%8A%B6%E7%BB%93%E6%9E%84">获取分类的递归树状结构</a></li>
+<li><a href="#%E9%85%8D%E7%BD%AE%E7%BD%91%E5%85%B3%E8%B7%AF%E7%94%B1%E5%92%8C%E8%B7%AF%E5%BE%84">配置网关路由和路径</a></li>
+<li><a href="#%E9%85%8D%E7%BD%AE%E4%B8%89%E7%BA%A7%E5%88%97%E8%A1%A8%E5%B1%95%E7%A4%BA">配置三级列表展示</a></li>
+<li><a href="#%E5%88%86%E7%B1%BB%E5%88%A0%E9%99%A4%E5%8A%9F%E8%83%BD">分类删除功能</a></li>
+<li><a href="#%E5%88%86%E7%B1%BB%E5%A2%9E%E5%8A%A0%E5%8A%9F%E8%83%BD">分类增加功能</a></li>
+<li><a href="#%E5%88%86%E7%B1%BB%E4%BF%AE%E6%94%B9%E5%8A%9F%E8%83%BD">分类修改功能</a></li>
+<li><a href="#%E6%8B%96%E6%8B%BD%E5%8A%9F%E8%83%BD">拖拽功能</a></li>
+<li><a href="#%E4%BC%98%E5%8C%96-%E6%89%B9%E9%87%8F%E6%8B%96%E6%8B%BD%E5%8A%9F%E8%83%BD">优化-批量拖拽功能</a></li>
+<li><a href="#%E5%88%86%E7%B1%BB%E6%89%B9%E9%87%8F%E5%88%A0%E9%99%A4%E5%8A%9F%E8%83%BD">分类批量删除功能</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/dian-shang-xiang-mu-day0qian-duan-ji-chu/">
+              <h3 class="post-title">
+                电商项目 番外：前端基础
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
