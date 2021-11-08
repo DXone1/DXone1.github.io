@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-07T09:57:29.703Z</updated>
+    <updated>2021-11-08T13:05:14.570Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,285 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[电商项目 day5：商品属性分组和关联同步]]></title>
+        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day5/</id>
+        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day5/">
+        </link>
+        <updated>2021-11-08T03:13:59.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="spu与sku">SPU与SKU</h2>
+<ol>
+<li>SPU： Standard Product Unit（标准化产品单元）<br>
+是商品信息聚合的最小单位， 是一组可复用、 易检索的标准化信息的集合， 该集合描述了一个产品的特性。</li>
+<li>SKU： Stock Keeping Unit（库存量单位）<br>
+即库存进出计量的基本单元， 可以是以件， 盒， 托盘等为单位。 SKU 是对于大型连锁超市DC（配送中心） 物流管理的一个必要的方法。 现在已经被引申为产品统一编号的简称， 每种产品均对应有唯一的 SKU 号。</li>
+</ol>
+<p>【例子】<br>
+iphoneX 是 SPU、 MI 8 是 SPU<br>
+iphoneX 64G 黑曜石 是 SKU<br>
+MI8 8+64G+黑色 是 SKU</p>
+<p><strong>开发相关</strong><br>
+基本属性【 规格参数】 与销售属性<br>
+每个分类下的商品共享规格参数， 与销售属性。 只是有些商品不一定要用这个分类下全部的属性；</p>
+<ul>
+<li>属性是以三级分类组织起来的</li>
+<li>规格参数中有些是可以提供检索的</li>
+<li>规格参数也是基本属性， 他们具有自己的分组</li>
+<li>属性的分组也是以三级分类组织起来的</li>
+<li>属性名确定的， 但是值是每一个商品不同来决定的</li>
+</ul>
+<p>即：规格参数 ==&gt; SPU   ||   销售属性（颜色、RAM等...） ==&gt; SKU</p>
+<p>属性表的设计：<br>
+<img src="https://dxone1.github.io//post-images/1636341899050.png" alt="" loading="lazy"><br>
+属性分组表：<br>
+<img src="https://dxone1.github.io//post-images/1636341955079.png" alt="" loading="lazy"><br>
+属性和分组的关联表：<br>
+<img src="https://dxone1.github.io//post-images/1636342006208.png" alt="" loading="lazy"><br>
+商品属性值表：<br>
+<img src="https://dxone1.github.io//post-images/1636342058067.png" alt="" loading="lazy"><br>
+spu和sku都有不同的表设计，总体的表如下：<br>
+<img src="https://dxone1.github.io//post-images/1636342149155.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636342329921.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636342581115.png" alt="" loading="lazy"></p>
+<h2 id="商品属性分组">商品属性分组</h2>
+<p>三级分类树在以后的项目中都有用处，所以先抽取出三级分类树展示模块<br>
+至于右边的表格直接使用代码生成器快速生成的模板即可<br>
+页面效果如下：<br>
+<img src="https://dxone1.github.io//post-images/1636356452967.png" alt="" loading="lazy"><br>
+抽取的公共三级分类树是子组件，我们希望当点击子组件时父组件可以感知，使用vue的事件机制可以达成。子组件给父组件发送一个事件，携带数据。element-ui定义的Tree有这样一个组件<br>
+<img src="https://dxone1.github.io//post-images/1636356664260.png" alt="" loading="lazy"></p>
+<ol>
+<li>在子组件中绑定node-click事件</li>
+</ol>
+<pre><code class="language-js">&lt;el-tree
+    ...
+    @node-click=&quot;nodeclick&quot;
+&gt;
+&lt;/el-tree&gt;
+
+nodeclick(data, node, component) {
+    console.log(&quot;子组件category被点击,&quot;,data, node, component);
+    // 向父组件发送事件
+    this.$emit(&quot;tree-node-click&quot;, data, node, component );
+}
+</code></pre>
+<ol start="2">
+<li>父组件标记感知的事件并绑定方法</li>
+</ol>
+<pre><code class="language-js">&lt;category @tree-node-click=&quot;treenodeClick&quot;&gt;&lt;/category&gt;
+</code></pre>
+<ol start="3">
+<li>后端逻辑<br>
+发送给后端获取该category的表，后端写相关的controller。本项目使用脚手架工程提供了一个sql封装，后端的Service层的实现如下。作用，传入一个params表和一个catelogId，后者必须匹配，前者的key字段和&quot;attr_group_id&quot;严格匹配，与&quot;attr_group_name&quot;模糊匹配</li>
+</ol>
+<pre><code class="language-java"> @Override
+public PageUtils queryPage(Map&lt;String, Object&gt; params, Long catelogId) {
+    if (catelogId == 0) {
+        IPage&lt;AttrGroupEntity&gt; page = this.page(new Query&lt;AttrGroupEntity&gt;().getPage(params),
+                new QueryWrapper&lt;AttrGroupEntity&gt;());
+        return new PageUtils(page);
+    } else {
+        String key = (String) params.get(&quot;key&quot;);
+        // select * from attr_group where catelog_id = ? and (attr_group = key or attr_name like %key%)
+        QueryWrapper&lt;AttrGroupEntity&gt; wrapper = new QueryWrapper&lt;AttrGroupEntity&gt;().eq(&quot;catelog_id&quot;, catelogId);
+        if(!StringUtils.isEmpty(key)) {
+            wrapper.and((obj) -&gt; {
+                obj.eq(&quot;attr_group_id&quot;, key).or().like(&quot;attr_group_name&quot;, key);
+            });
+        }
+        IPage&lt;AttrGroupEntity&gt; page = this.page(new Query&lt;AttrGroupEntity&gt;().getPage(params),
+                wrapper);
+        return new PageUtils(page);
+    }
+}
+</code></pre>
+<ol start="4">
+<li>前端请求方法</li>
+</ol>
+<pre><code class="language-js">// 感知树节点被点击
+treenodeClick(data, node, component) {
+    console.log(&quot;attrgroup感知到category的节点被点击&quot;, data, node, component);
+    console.log(&quot;点击的菜单id为&quot;, data.catId);
+    // 只有第三级分类才查询
+    if (node.level == 3) {
+        this.catId = data.catId;
+        this.getDataList();
+    }
+},
+</code></pre>
+<h2 id="属性分组新增修改功能">属性分组新增/修改功能</h2>
+<p>只需为 Cascader 的options属性指定选项数组即可渲染出一个级联选择器。通过props.expandTrigger可以定义展开子级菜单的触发方式。<br>
+给后端的children属性添加一个注解，使得其不为空时才通过json返回</p>
+<pre><code class="language-java">/**
+* 子分类
+*/
+@JsonInclude(JsonInclude.Include.NON_EMPTY)
+@TableField(exist = false)
+private List&lt;CategoryEntity&gt; children;
+</code></pre>
+<p>前端请求添加即可<br>
+修改功能涉及到回显，需要在后端回显添加一个数组属性</p>
+<pre><code class="language-java">@TableField(exist = false)
+private Long[] catelogPath;
+</code></pre>
+<p>查找Path的方法：</p>
+<pre><code class="language-java">@Override
+public Long[] findCatelogPath(Long catelogId) {
+    List&lt;Long&gt; paths = new ArrayList&lt;&gt;();
+    findParentPath(catelogId, paths);
+    return paths.toArray(new Long[paths.size()]);
+}
+
+private void findParentPath(Long catelogId, List&lt;Long&gt; paths) {
+    CategoryEntity byId = this.getById(catelogId);
+    if(byId.getParentCid() != 0) {
+        findParentPath(byId.getParentCid(), paths);
+    }
+    // 后序遍历
+    paths.add(catelogId);
+}
+</code></pre>
+<p>效果如图：<br>
+<img src="https://dxone1.github.io//post-images/1636364145316.png" alt="" loading="lazy"><br>
+前端回显之后注意需要在对话框关闭后回调重置路径</p>
+<pre><code class="language-js">// 关闭对话框，回调清除diaglogPath
+dialogClosed(){
+    this.dataForm.catelogPath = [];
+}
+</code></pre>
+<p>对话框的写法：</p>
+<pre><code class="language-js">&lt;el-dialog
+    :title=&quot;!dataForm.attrGroupId ? '新增' : '修改'&quot;
+    :close-on-click-modal=&quot;false&quot;
+    :visible.sync=&quot;visible&quot;
+    @closed=&quot;dialogClosed&quot;
+&gt;
+    &lt;el-form
+      :model=&quot;dataForm&quot;
+      :rules=&quot;dataRule&quot;
+      ref=&quot;dataForm&quot;
+      @keyup.enter.native=&quot;dataFormSubmit()&quot;
+      label-width=&quot;80px&quot;
+    &gt;
+      &lt;el-form-item label=&quot;组名&quot; prop=&quot;attrGroupName&quot;&gt;
+        &lt;el-input
+          v-model=&quot;dataForm.attrGroupName&quot;
+          placeholder=&quot;组名&quot;
+        &gt;&lt;/el-input&gt;
+      &lt;/el-form-item&gt;
+      &lt;el-form-item label=&quot;排序&quot; prop=&quot;sort&quot;&gt;
+        &lt;el-input v-model=&quot;dataForm.sort&quot; placeholder=&quot;排序&quot;&gt;&lt;/el-input&gt;
+      &lt;/el-form-item&gt;
+      &lt;el-form-item label=&quot;描述&quot; prop=&quot;descript&quot;&gt;
+        &lt;el-input v-model=&quot;dataForm.descript&quot; placeholder=&quot;描述&quot;&gt;&lt;/el-input&gt;
+      &lt;/el-form-item&gt;
+      &lt;el-form-item label=&quot;组图标&quot; prop=&quot;icon&quot;&gt;
+        &lt;el-input v-model=&quot;dataForm.icon&quot; placeholder=&quot;组图标&quot;&gt;&lt;/el-input&gt;
+      &lt;/el-form-item&gt;
+      &lt;el-form-item label=&quot;所属分类id&quot; prop=&quot;catelogId&quot;&gt;
+        &lt;!-- &lt;el-input v-model=&quot;dataForm.catelogId&quot; placeholder=&quot;所属分类id&quot;&gt;&lt;/el-input&gt; --&gt;
+        &lt;el-cascader
+          v-model=&quot;dataForm.catelogPath&quot;
+          :options=&quot;categorys&quot;
+          :props=&quot;props&quot;
+          filterable
+        &gt;&lt;/el-cascader&gt;
+      &lt;/el-form-item&gt;
+    &lt;/el-form&gt;
+    &lt;span slot=&quot;footer&quot; class=&quot;dialog-footer&quot;&gt;
+      &lt;el-button @click=&quot;visible = false&quot;&gt;取消&lt;/el-button&gt;
+      &lt;el-button type=&quot;primary&quot; @click=&quot;dataFormSubmit()&quot;&gt;确定&lt;/el-button&gt;
+    &lt;/span&gt;
+&lt;/el-dialog&gt;
+</code></pre>
+<h2 id="品牌管理功能细化">品牌管理功能细化</h2>
+<p>希望能够正确显示分页并提供品牌管理的查询功能<br>
+<img src="https://dxone1.github.io//post-images/1636371869531.png" alt="" loading="lazy"><br>
+根据Mybatis-plus的文档，只需要在IOC容器中添加一个PaginationInterceptor即可</p>
+<pre><code class="language-java">@Configuration
+@EnableTransactionManagement
+@MapperScan(&quot;com.dong.mall.product.dao&quot;)
+public class MyBatisConfig {
+    // 引入分页插件
+    // 旧版
+    @Bean
+    public PaginationInterceptor paginationInterceptor() {
+        PaginationInterceptor paginationInterceptor = new PaginationInterceptor();
+        // 设置请求的页面大于最大页后操作， true调回到首页，false 继续请求  默认false
+         paginationInterceptor.setOverflow(true);
+        // 设置最大单页限制数量，默认 500 条，-1 不受限制
+         paginationInterceptor.setLimit(100);
+        // 开启 count 的 join 优化,只针对部分 left join
+        paginationInterceptor.setCountSqlParser(new JsqlParserCountOptimize(true));
+        return paginationInterceptor;
+    }
+}
+</code></pre>
+<p><strong>自行编写了商品系统的：分类维护、品牌管理和属性分组功能，之后的前端代码不再重复写</strong><br>
+考虑品牌和商品分类的对应：是一种多对多的关系，所以使用一张中间表处理业务。给品牌管理添加关联分类功能，是一种多对多的关系。<br>
+<img src="https://dxone1.github.io//post-images/1636373493726.png" alt="" loading="lazy"><br>
+需要编写如下接口：</p>
+<ul>
+<li>查询所有当前品牌关联的分类</li>
+<li>添加新的关联分类</li>
+<li>删除关联分类<br>
+在CategoryBrandRelationController这里写业务</li>
+</ul>
+<pre><code class="language-java">/**
+    * 获取当前品牌关联的所有的分类的列表
+    */
+@RequestMapping(&quot;/catelog/list&quot;)
+public R cateloglist(@RequestParam(&quot;brandId&quot;) Long brandId) {
+    List&lt;CategoryBrandRelationEntity&gt; data = categoryBrandRelationService.list(
+            new QueryWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;brand_id&quot;, brandId)
+    );
+    return R.ok().put(&quot;data&quot;, data);
+}
+
+// 重写了能保存品牌和分类名的service方法
+@Override
+public void saveDetail(CategoryBrandRelationEntity categoryBrandRelation) {
+    Long brandId = categoryBrandRelation.getBrandId();
+    Long catelogId = categoryBrandRelation.getCatelogId();
+    // 先查询品牌名字和分类名
+    BrandEntity brandEntity = brandDao.selectById(brandId);
+    CategoryEntity categoryEntity = categoryDao.selectById(catelogId);
+    // 设置字段再返回
+    categoryBrandRelation.setBrandName(brandEntity.getName());
+    categoryBrandRelation.setCatelogName(categoryEntity.getName());
+    this.save(categoryBrandRelation);
+}
+</code></pre>
+<p>效果如图：<br>
+<img src="https://dxone1.github.io//post-images/1636374659495.png" alt="" loading="lazy"><br>
+然而，之前的品牌更新代码代码只是在品牌表中进行增删改查，如果实际业务表格修改就会有很大的问题，因为关联表是有冗余条目存在的，必须同步，于是采用如下操作：重写品牌的update的逻辑。而新增则在关联发生之前不需要修改。</p>
+<pre><code class="language-java">// brandServiceImpl.java
+@Override
+public void updateDetail(BrandEntity brand) {
+    // 保证冗余字段的数据一致
+    this.updateById(brand);
+    // 品牌名发生修改，需要修改关联表中的数据
+    if(!StringUtils.isEmpty(brand.getName())) {
+        // 品牌和类别关联表
+        categoryBrandRelationService.updateBrand(brand.getBrandId(), brand.getName());
+        //TODO 更新其他关联
+    }
+}
+// categoryBrandRelationService.updateBrand()
+@Override
+public void updateBrand(Long brandId, String name) {
+    CategoryBrandRelationEntity relationEntity = new CategoryBrandRelationEntity();
+    relationEntity.setBrandId(brandId);
+    relationEntity.setBrandName(name);
+    this.update(relationEntity, new UpdateWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;brand_id&quot;, brandId));
+}
+</code></pre>
+<p>测试：将品牌改为华为2，关联分类中的也变化<br>
+<img src="https://dxone1.github.io//post-images/1636375664862.png" alt="" loading="lazy"><br>
+同理，分类的修改也要修改关联表项目<br>
+最后，注意到同时修改两张表，要么同时成功，要么同时失败，需要使用事务保证一致性。在MybatisConfig配置类已经使用@EnableTransactionManagement开启了事务管理，只需要在方法上使用@Transactiona添加事务即可</p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[电商项目 day4：品牌管理]]></title>
         <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day4pin-pai-guan-li/</id>
