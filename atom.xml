@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-10T13:41:08.562Z</updated>
+    <updated>2021-11-11T06:45:26.797Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,193 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[电商项目 day7：发布商品功能]]></title>
+        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day7/</id>
+        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day7/">
+        </link>
+        <updated>2021-11-10T02:19:53.000Z</updated>
+        <content type="html"><![CDATA[<p>继续完善后台管理系统的各种功能，首先编写商品维护系统中的发布商品功能</p>
+<h2 id="发布商品">发布商品</h2>
+<p>前端页面如下<br>
+<img src="https://dxone1.github.io//post-images/1636510989235.png" alt="" loading="lazy"><br>
+首先会发出请求会员等级，请求方式为Get，地址为http://localhost:88/api/member/memberlevel/list?t=1636511786443&amp;page=1&amp;limit=500，返回分页数据<br>
+在后端写逻辑，其实不用在这里写，写在用户系统中，调整即可。<br>
+会员等级页面：<br>
+<img src="https://dxone1.github.io//post-images/1636513825943.png" alt="" loading="lazy"></p>
+<ol>
+<li>获取分类关联的品牌<br>
+在发布商品页面如果选择分类会发送一个请求关联品牌，编写相关的后端逻辑<br>
+GET：http://localhost:88/api/product/categorybrandrelation/brands/list?t=1636514532755&amp;catId=225</li>
+</ol>
+<pre><code class="language-java">@Override
+public List&lt;BrandEntity&gt; getBrandsByCatId(Long catId) {
+    List&lt;CategoryBrandRelationEntity&gt; relationEntities = relationDao.selectList(new QueryWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;catelog_id&quot;, catId));
+    List&lt;BrandEntity&gt; collect = relationEntities.stream().map(item -&gt; {
+        Long brandId = item.getBrandId();
+        BrandEntity brandEntity = brandService.getById(brandId);
+        return brandEntity;
+    }).collect(Collectors.toList());
+    return collect;
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1636515964281.png" alt="" loading="lazy"><br>
+2. 获取分类下所有分组和基本属性<br>
+<img src="https://dxone1.github.io//post-images/1636516276038.png" alt="" loading="lazy"><br>
+这个页面要求获取所选分类下所有分组和基本属性</p>
+<pre><code class="language-java">/**
+    * 根据分类id查询所有的group以及其中的属性
+    * @param catelogId
+    * @return
+    */
+@Override
+public List&lt;AttrGroupWithAttrsVo&gt; getAttrGroupWithAttrsByCatelogId(Long catelogId) {
+    // 查出所有分组
+    List&lt;AttrGroupEntity&gt; groupEntities = this.list(new QueryWrapper&lt;AttrGroupEntity&gt;().eq(&quot;catelog_id&quot;, catelogId));
+    // 查询所有属性
+    List&lt;AttrGroupWithAttrsVo&gt; collect = groupEntities.stream().map(group -&gt; {
+        AttrGroupWithAttrsVo attrGroupWithAttrsVo = new AttrGroupWithAttrsVo();
+        // 封装
+        BeanUtils.copyProperties(group, attrGroupWithAttrsVo);
+        // 查询属性
+        Long attrGroupId = group.getAttrGroupId();
+        List&lt;AttrEntity&gt; attrEntities = attrService.getRelationAttr(attrGroupId);
+        attrGroupWithAttrsVo.setAttrs(attrEntities);
+
+        return attrGroupWithAttrsVo;
+    }).collect(Collectors.toList());
+
+    return collect;
+}
+</code></pre>
+<p>效果<br>
+<img src="https://dxone1.github.io//post-images/1636519102576.png" alt="" loading="lazy"><br>
+3. 返回的是一个很大的Json串，为了合理的封装使用一个SpuSaveVo封装。使用在线的生成工具即可生成，然后编写保存逻辑，以下是业务逻辑</p>
+<pre><code class="language-txt">//1. 保存SPU基本信息 pms_spu_info
+//2. 保存SPU的描述图片 pms_spu_info_desc
+//3. 保存SPU的图片集 pms_spu_images
+//4. 保存SPU的规格参数 pms_product_attr_value
+//5. 保存SPU的积分信息 跨库：mall_sms -&gt; sms_spu_bounds
+//6. 保存当前SPU对应的所有SKU信息
+    //6.1. SKU的基本信息 pms_sku_info
+    //6.2. SKU的图片 pms_sku_images
+    //6.3. SKU的销售属性 pms_sku_sale_attr_value
+    //6.4. SKU的优惠信息 跨库：mall_sms -&gt; sms_sku_ladder, sms_sku_full_reduction, sms_member_price
+</code></pre>
+<p>注意有两个跨服务逻辑：使用mall-coupon提供的远程调用，使用openFeign。服务间调用使用TO封装数据，都是传递json</p>
+<pre><code class="language-java">@Transactional
+@Override
+public void saveSpuInfo(SpuSaveVo vo) {
+    //1. 保存SPU基本信息 pms_spu_info
+    SpuInfoEntity infoEntity = new SpuInfoEntity();
+    BeanUtils.copyProperties(vo, infoEntity);
+    infoEntity.setCreateTime(new Date());
+    infoEntity.setUpdateTime(new Date());
+    this.saveBaseSpuInfo(infoEntity);
+
+    //2. 保存SPU的描述图片 pms_spu_info_desc
+    List&lt;String&gt; decript = vo.getDecript();
+    SpuInfoDescEntity descEntity = new SpuInfoDescEntity();
+    descEntity.setSpuId(infoEntity.getId());
+    descEntity.setDecript(String.join(&quot;,&quot;, decript));
+    spuInfoDescService.saveSpuInfoDesc(descEntity);
+
+    //3. 保存SPU的图片集 pms_spu_images
+    List&lt;String&gt; images = vo.getImages();
+    spuImagesService.saveImages(infoEntity.getId(), images);
+
+    //4. 保存SPU的规格参数 pms_product_attr_value
+    List&lt;BaseAttrs&gt; baseAttrs = vo.getBaseAttrs();
+    List&lt;ProductAttrValueEntity&gt; collect = baseAttrs.stream().map(attr -&gt; {
+        ProductAttrValueEntity valueEntity = new ProductAttrValueEntity();
+        valueEntity.setAttrId(attr.getAttrId());
+        // 查属性entity
+        AttrEntity attrEntity = attrService.getById(attr.getAttrId());
+        valueEntity.setAttrName(attrEntity.getAttrName());
+        valueEntity.setAttrValue(attr.getAttrValues());
+        valueEntity.setQuickShow(attr.getShowDesc());
+        valueEntity.setSpuId(infoEntity.getId());
+        return valueEntity;
+    }).collect(Collectors.toList());
+    productAttrValueService.saveProductAttr(collect);
+
+    //5. 保存SPU的积分信息 跨库：mall_sms -&gt; sms_spu_bounds
+    // 封装远程调用数据
+    Bounds bounds = vo.getBounds();
+    SpuBoundTo spuBoundTo = new SpuBoundTo();
+    BeanUtils.copyProperties(bounds, spuBoundTo);
+    spuBoundTo.setSpuId(infoEntity.getId());
+    // 远程调用
+    R r = couponFeignService.saveSpuBounds(spuBoundTo);
+    if(r.getCode() != 0) {
+        log.error(&quot;远程保存spu积分信息失败&quot;);
+    }
+
+    //6. 保存当前SPU对应的所有SKU信息
+    List&lt;Skus&gt; skus = vo.getSkus();
+    if(skus != null &amp;&amp; skus.size() &gt; 0) {
+        skus.forEach(item -&gt; {
+            // 获取默认图片
+            String defaultImg = &quot;&quot;;
+            for(Images image: item.getImages()) {
+                if(image.getDefaultImg() == 1) {
+                    defaultImg = image.getImgUrl();
+                }
+            }
+            ///基本信息
+            //6.1. SKU的基本信息 pms_sku_info
+            SkuInfoEntity skuInfoEntity = new SkuInfoEntity();
+            BeanUtils.copyProperties(item, skuInfoEntity);
+            // 手动注入剩下的属性
+            skuInfoEntity.setBrandId(infoEntity.getBrandId());
+            skuInfoEntity.setCatalogId(infoEntity.getCatalogId());
+            skuInfoEntity.setSaleCount(0L);
+            skuInfoEntity.setSpuId(infoEntity.getId());
+            skuInfoEntity.setSkuDefaultImg(defaultImg);
+            skuInfoService.saveSkuInfo(skuInfoEntity);
+
+            // sku自增主键
+            Long skuId = skuInfoEntity.getSkuId();
+
+            //6.2. 保存SKU的图片 pms_sku_images
+            List&lt;SkuImagesEntity&gt; imagesEntities = item.getImages().stream().map(img -&gt; {
+                SkuImagesEntity skuImagesEntity = new SkuImagesEntity();
+                skuImagesEntity.setSkuId(skuId);
+                skuImagesEntity.setImgUrl(img.getImgUrl());
+                skuImagesEntity.setDefaultImg(img.getDefaultImg());
+                return skuImagesEntity;
+            }).filter(entity -&gt; {
+                // 返回true需要，否则抛弃
+                return !StringUtils.isEmpty(entity.getImgUrl());
+            }).collect(Collectors.toList());
+            skuImagesService.saveBatch(imagesEntities);
+
+            //6.3. SKU的销售属性 pms_sku_sale_attr_value
+            List&lt;Attr&gt; attr = item.getAttr();
+            List&lt;SkuSaleAttrValueEntity&gt; skuSaleAttrValueEntities = attr.stream().map(a -&gt; {
+                SkuSaleAttrValueEntity skuSaleAttrValueEntity = new SkuSaleAttrValueEntity();
+                BeanUtils.copyProperties(a, skuSaleAttrValueEntity);
+                skuSaleAttrValueEntity.setSkuId(skuInfoEntity.getSkuId());
+                return skuSaleAttrValueEntity;
+            }).collect(Collectors.toList());
+            skuSaleAttrValueService.saveBatch(skuSaleAttrValueEntities);
+
+            //6.4. SKU的优惠信息 跨库：mall_sms -&gt; sms_sku_ladder, sms_sku_full_reduction, sms_member_price
+            SkuReductionTo skuReductionTo = new SkuReductionTo();
+            BeanUtils.copyProperties(item, skuReductionTo);
+            skuReductionTo.setSkuId(skuId);
+            if(skuReductionTo.getFullCount() &gt;0 || (skuReductionTo.getFullPrice() != null &amp;&amp; skuReductionTo.getFullPrice().compareTo(new BigDecimal(&quot;0&quot;)) == 1)){
+                R r1 = couponFeignService.saveSkuReduction(skuReductionTo);
+                if(r1.getCode() != 0) {
+                    log.error(&quot;远程保存sku积分信息失败&quot;);
+                }
+            }
+        });
+    }
+</code></pre>
+<p>调试需要花费很大的心思，而且并不足够健壮。</p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[电商项目 day6：平台参数]]></title>
         <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day6ping-tai-can-shu/</id>
