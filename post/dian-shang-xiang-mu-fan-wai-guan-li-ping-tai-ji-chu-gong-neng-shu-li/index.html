@@ -1,0 +1,235 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>电商项目 番外：管理平台基础功能梳理 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636708668939">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="电商项目 番外：管理平台基础功能梳理 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="业务实现
+本部分主要实现了管理平台的商品和库存模块两个板块的内容，具体的业务树形图如下
+
+以下分别梳理各项业务功能
+1 分类维护功能
+此部分使用element-ui搭建前端系统，实现了可以拖拽、修改、删除、添加的三级分类逻辑和后端持久化。在..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636708668939" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              电商项目 番外：管理平台基础功能梳理
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-12
+              </span>
+              <span>
+                3 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h2 id="业务实现">业务实现</h2>
+<p>本部分主要实现了管理平台的商品和库存模块两个板块的内容，具体的业务树形图如下<br>
+<img src="https://dxone1.github.io//post-images/1636699503943.png" alt="" loading="lazy"><br>
+以下分别梳理各项业务功能</p>
+<h3 id="1-分类维护功能">1 分类维护功能</h3>
+<p>此部分使用element-ui搭建前端系统，实现了可以拖拽、修改、删除、添加的三级分类逻辑和后端持久化。在一般状态下可以展开、修改和添加分类。最后一级菜单不可以再添加。<br>
+<img src="https://dxone1.github.io//post-images/1636699759831.png" alt="" loading="lazy"><br>
+当开启拖拽功能后，可以通过直觉地拖拽完成分类的级别调整<br>
+<img src="https://dxone1.github.io//post-images/1636699862828.png" alt="" loading="lazy"></p>
+<h3 id="2-品牌管理功能">2 品牌管理功能</h3>
+<p>该页面允许添加品牌，并将其关联到一些分类中。例如华为可以关联手机、平板电脑、电视等<br>
+<img src="https://dxone1.github.io//post-images/1636699983562.png" alt="" loading="lazy"></p>
+<h3 id="3-平台属性功能">3 平台属性功能</h3>
+<p>首先需要梳理SKU和SPU两个概念，SPU是某型产品的规格，而SKU是该型产品提供的高中低搭配的销售属性，往往以商品颜色、手机的内存规格等区分。我们将它们都关联到一个具体的分类中，SPU属性都归为一个属性分组以方便显示，例如如下的京东商城页面<br>
+<img src="https://dxone1.github.io//post-images/1636700297498.png" alt="" loading="lazy"></p>
+<ol>
+<li>属性分组<br>
+可以修改、删除、新增分组。每个属性分组都归属于某个分类中。查询部分支持按照id严格搜索或是分组名模糊搜索<br>
+<img src="https://dxone1.github.io//post-images/1636700811510.png" alt="" loading="lazy"><br>
+关联部分则会查找回显当前分组关联的规格参数（SPU属性），新建关联会回显当前分类未被归属到某个分组的属性<br>
+<img src="https://dxone1.github.io//post-images/1636701017773.png" alt="" loading="lazy"></li>
+<li>规格参数（SPU属性）<br>
+<img src="https://dxone1.github.io//post-images/1636700733543.png" alt="" loading="lazy"></li>
+<li>销售属性<br>
+销售属性也是跟分类关联的，但是不属于某个分组<br>
+<img src="https://dxone1.github.io//post-images/1636701102280.png" alt="" loading="lazy"></li>
+</ol>
+<h3 id="4-商品维护功能">4 商品维护功能</h3>
+<p>该部分可以实现SPU管理、发布商品、商品管理的功能，功能的前端页面如图<br>
+<img src="https://dxone1.github.io//post-images/1636701197594.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636701217115.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636701242694.png" alt="" loading="lazy"><br>
+商品发布部分可以添加商品介绍页和商品图集，这部分是通过阿里云的OOS文件服务器实现的，因为本项目目标是分布式部署，为了文件系统的一致性使用本服务器签名后保存到阿里云服务器的方式。</p>
+<h3 id="5-仓库维护">5 仓库维护</h3>
+<p>库存维护功能可以直接修改和新增仓库<br>
+<img src="https://dxone1.github.io//post-images/1636701482557.png" alt="" loading="lazy"></p>
+<h3 id="6-商品库存">6 商品库存</h3>
+<p>该功能可以直接新增库存项和修改库存内容，也支持检索。一个库存项的典型表格如下<br>
+<img src="https://dxone1.github.io//post-images/1636701565873.png" alt="" loading="lazy"></p>
+<h3 id="7-采购单部分">7 采购单部分</h3>
+<p>采购逻辑是提出采购需求 -&gt; 合并整单（创建新单或给某个采购单）-&gt; 采购接单 -&gt; 采购完成 -&gt; 更新采购单和采购需求状态<br>
+<img src="https://dxone1.github.io//post-images/1636701718971.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636701736919.png" alt="" loading="lazy"></p>
+<h2 id="技术和开发trick">技术和开发trick</h2>
+<p>分布式相关：nacos服务发现，OpenFeign远程调用，gateWay服务网关<br>
+前端：vue组件和element-ui模板<br>
+Linux：centOS7 + docker<br>
+新技术规范：全局统一异常处理ExceptionHandler，JSR303后端数据校验，使用枚举类型定义业务状态码，VO视图实体和PO远程调用实体</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E4%B8%9A%E5%8A%A1%E5%AE%9E%E7%8E%B0">业务实现</a>
+<ul>
+<li><a href="#1-%E5%88%86%E7%B1%BB%E7%BB%B4%E6%8A%A4%E5%8A%9F%E8%83%BD">1 分类维护功能</a></li>
+<li><a href="#2-%E5%93%81%E7%89%8C%E7%AE%A1%E7%90%86%E5%8A%9F%E8%83%BD">2 品牌管理功能</a></li>
+<li><a href="#3-%E5%B9%B3%E5%8F%B0%E5%B1%9E%E6%80%A7%E5%8A%9F%E8%83%BD">3 平台属性功能</a></li>
+<li><a href="#4-%E5%95%86%E5%93%81%E7%BB%B4%E6%8A%A4%E5%8A%9F%E8%83%BD">4 商品维护功能</a></li>
+<li><a href="#5-%E4%BB%93%E5%BA%93%E7%BB%B4%E6%8A%A4">5 仓库维护</a></li>
+<li><a href="#6-%E5%95%86%E5%93%81%E5%BA%93%E5%AD%98">6 商品库存</a></li>
+<li><a href="#7-%E9%87%87%E8%B4%AD%E5%8D%95%E9%83%A8%E5%88%86">7 采购单部分</a></li>
+</ul>
+</li>
+<li><a href="#%E6%8A%80%E6%9C%AF%E5%92%8C%E5%BC%80%E5%8F%91trick">技术和开发trick</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/dian-shang-xiang-mu-day-8shang-pin-he-cang-ku-guan-li/">
+              <h3 class="post-title">
+                电商项目 day 8：商品和仓库管理
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
