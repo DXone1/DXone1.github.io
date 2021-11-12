@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-11T06:46:26.646Z</updated>
+    <updated>2021-11-12T05:28:30.856Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,219 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[电商项目 day 8：商品和仓库管理]]></title>
+        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day-8shang-pin-he-cang-ku-guan-li/</id>
+        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day-8shang-pin-he-cang-ku-guan-li/">
+        </link>
+        <updated>2021-11-11T06:48:23.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="spu组合搜索功能">SPU组合搜索功能</h2>
+<p><img src="https://dxone1.github.io//post-images/1636614407614.png" alt="" loading="lazy"><br>
+看到其中不仅有商品ID商品名等信息还有分类等组合查询</p>
+<pre><code class="language-java">@Override
+public PageUtils queryPageByCondition(Map&lt;String, Object&gt; params) {
+    QueryWrapper&lt;SpuInfoEntity&gt; wrapper = new QueryWrapper&lt;&gt;();
+    /**
+        * 根据以下信息组合查询
+        * status:
+        * key:
+        * brandId: 0
+        * catelogId: 0
+        */
+    String key = (String) params.get(&quot;key&quot;);
+    if(!StringUtils.isEmpty(key)) {
+        wrapper.and(w -&gt; {
+            w.eq(&quot;id&quot;, key).or().like(&quot;spu_name&quot;, key);
+        });
+    }
+    String status = (String) params.get(&quot;status&quot;);
+    if(!StringUtils.isEmpty(status)) {
+        wrapper.eq(&quot;publish_status&quot;, status);
+
+    }
+    String brandId = (String) params.get(&quot;brandId&quot;);
+    if(!StringUtils.isEmpty(brandId)) {
+        wrapper.eq(&quot;brand_id&quot;, brandId);
+    }
+    String catelogId = (String) params.get(&quot;catelogId&quot;);
+    if(!StringUtils.isEmpty(catelogId)) {
+        wrapper.eq(&quot;catalog_id&quot;, catelogId);
+    }
+    IPage&lt;SpuInfoEntity&gt; page = this.page(new Query&lt;SpuInfoEntity&gt;().getPage(params),
+            wrapper);
+    return new PageUtils(page);
+}
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1636615251501.png" alt="" loading="lazy"></figure>
+<h2 id="sku检索功能">SKU检索功能</h2>
+<p>一样的内容，组合检索<br>
+<img src="https://dxone1.github.io//post-images/1636617236425.png" alt="" loading="lazy"></p>
+<h2 id="仓库维护">仓库维护</h2>
+<figure data-type="image" tabindex="2"><img src="https://dxone1.github.io//post-images/1636618921114.png" alt="" loading="lazy"></figure>
+<h2 id="商品库存">商品库存</h2>
+<p>请求 URL: http://localhost:88/api/ware/waresku/list?t=1636618949796&amp;page=1&amp;limit=10&amp;skuId=&amp;wareId=</p>
+<pre><code class="language-txt">t: 1636618949796
+page: 1
+limit: 10
+skuId: 
+wareId: 
+</code></pre>
+<h2 id="库存管理">库存管理</h2>
+<p>注意，生产环境中不能直接而在商品库存添加库存，而是通过采购单来进行维护添加。流程是：<br>
+采购需求(合并整单) -&gt; 采购单 -&gt; 库存添加<br>
+<img src="https://dxone1.github.io//post-images/1636619627154.png" alt="" loading="lazy"></p>
+<ol>
+<li>采购需求整单的逻辑<br>
+<img src="https://dxone1.github.io//post-images/1636620152697.png" alt="" loading="lazy"><br>
+在采购单页面可以创建新增的采购单，在采购需求合并整单的时候需要将其合并到该单中。需要能够查询采购单。<br>
+<img src="https://dxone1.github.io//post-images/1636620313865.png" alt="" loading="lazy"><br>
+接口：http://localhost:88/api/ware/purchase/unreceive/list?t=1636620326054<br>
+定义如下：<br>
+<img src="https://dxone1.github.io//post-images/1636620731059.png" alt="" loading="lazy"><br>
+所以查询所有新建/已分配的采购单（都还没有出发采购）<br>
+合并采购需求发送一个POST请求：<br>
+请求 URL: http://localhost:88/api/ware/purchase/merge<br>
+<img src="https://dxone1.github.io//post-images/1636620991832.png" alt="" loading="lazy"><br>
+也有可能不提交采购单而快速创建新单，则请求体中没有purchaseId，必须自动创建。<br>
+编写功能</li>
+</ol>
+<pre><code class="language-java">@Transactional
+@Override
+public void mergePurchase(MerageVo merageVo) {
+    Long purchaseId = merageVo.getPurchaseId();
+    // 没有采购单ID要新建一个采购单
+    if(purchaseId == null) {
+        PurchaseEntity purchaseEntity = new PurchaseEntity();
+        purchaseEntity.setStatus(WareConstant.PurchaseStatusEnum.CREATED.getCode());
+        purchaseEntity.setCreateTime(new Date());
+        purchaseEntity.setUpdateTime(new Date());
+        this.save(purchaseEntity);
+        // 新建的采购单的ID
+        purchaseId = purchaseEntity.getId();
+    }
+    // 把采购单信息保存到采购需求中
+    List&lt;Long&gt; items = merageVo.getItems();
+    Long finalPurchaseId = purchaseId;
+    List&lt;PurchaseDetailEntity&gt; collect = items.stream().map(i -&gt; {
+        PurchaseDetailEntity detailEntity = new PurchaseDetailEntity();
+        detailEntity.setId(i);
+        detailEntity.setPurchaseId(finalPurchaseId);
+        detailEntity.setStatus(WareConstant.PurchaseDetailEnum.ASSIGNED.getCode());
+        return detailEntity;
+    }).collect(Collectors.toList());
+    purchaseDetailService.updateBatchById(collect);
+}
+</code></pre>
+<ol start="2">
+<li>领取采购单<br>
+在采购单被分配后需要人员领取，领取之后状态需要变化<br>
+当采购完成后也需要结束采购<br>
+这两个功能的发出使用postMan进行模拟，本项目不涉及其页面和业务的开发，领取采购单的APP模拟如下：<br>
+<img src="https://dxone1.github.io//post-images/1636623430355.png" alt="" loading="lazy"></li>
+</ol>
+<pre><code class="language-java">@Override
+public void received(List&lt;Long&gt; ids) {
+    //1. 确认当前采购单是新建/已分配
+    List&lt;PurchaseEntity&gt; collect = ids.stream().map(id -&gt; {
+        PurchaseEntity purchaseEntity = this.getById(id);
+        return purchaseEntity;
+    }).filter(item -&gt; {
+        // 必须是新建/已分配的采购单
+        return item.getStatus() == WareConstant.PurchaseStatusEnum.CREATED.getCode() ||
+                item.getStatus() == WareConstant.PurchaseStatusEnum.ASSIGNED.getCode();
+    }).map(item -&gt; {
+        //2. 改变采购单的状态
+        item.setStatus(WareConstant.PurchaseStatusEnum.RECEIVED.getCode());
+        item.setUpdateTime(new Date());
+        return item;
+    }).collect(Collectors.toList());
+
+    // 实际更新采购单状态
+    this.updateBatchById(collect);
+
+    //3. 改变采购单采购项的状态
+    collect.forEach(item -&gt; {
+        Long purchaseId = item.getId();
+        List&lt;PurchaseDetailEntity&gt; purchaseDetailEntities = purchaseDetailService.listDetailByPurchaseId(purchaseId);
+        List&lt;PurchaseDetailEntity&gt; detailEntities = purchaseDetailEntities.stream().map(entity -&gt; {
+            PurchaseDetailEntity purchaseDetailEntity = new PurchaseDetailEntity();
+            purchaseDetailEntity.setId(entity.getId());
+            purchaseDetailEntity.setStatus(WareConstant.PurchaseDetailEnum.BUYING.getCode());
+            return purchaseDetailEntity;
+        }).collect(Collectors.toList());
+        purchaseDetailService.updateBatchById(detailEntities);
+    });
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1636624822561.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1636624825855.png" alt="" loading="lazy"></p>
+<h2 id="完成采购">完成采购</h2>
+<p>完成采购后会发出一个请求，必须进行商品库存的服务调用。<br>
+<img src="https://dxone1.github.io//post-images/1636633148544.png" alt="" loading="lazy"></p>
+<pre><code class="language-java">@Override
+public void addStock(Long skuId, Long wareId, Integer skuNum) {
+    // 1. 如果还没有库存记录则新增
+    List&lt;WareSkuEntity&gt; entities = wareSkuDao.selectList(new QueryWrapper&lt;WareSkuEntity&gt;().eq(&quot;sku_id&quot;, skuId).eq(&quot;ware_id&quot;, wareId));
+    if(entities == null || entities.size() == 0) {
+        WareSkuEntity skuEntity = new WareSkuEntity();
+        skuEntity.setSkuId(skuId);
+        skuEntity.setStock(skuNum);
+        skuEntity.setWareId(wareId);
+        skuEntity.setStockLocked(0);
+        //远程调用查询skuName冗余备份
+        // TODO 还有什么办法不回滚处理异常
+        try {
+            R info = productFeignService.info(skuId);
+            Map&lt;String, Object&gt; data = (Map&lt;String, Object&gt;) info.get(&quot;skuInfo&quot;);
+            if(info.getCode() == 0) {
+                skuEntity.setSkuName((String) data.get(&quot;skuName&quot;));
+            }
+        } catch (Exception e) {
+
+        }
+        wareSkuDao.insert(skuEntity);
+    } else {
+        // 否则增加库存
+        wareSkuDao.addStock(skuId, wareId, skuNum);
+    }
+}
+</code></pre>
+<p>测试实例：<br>
+<img src="https://dxone1.github.io//post-images/1636638183522.png" alt="" loading="lazy"></p>
+<h2 id="spu管理">Spu管理</h2>
+<p>也是分为展示、修改两个功能模块</p>
+<pre><code class="language-java">/**
+    * 展示SPU属性
+    * @param spuId
+    * @return
+    */
+@Override
+public List&lt;ProductAttrValueEntity&gt; baseAttrListForSpu(Long spuId) {
+    List&lt;ProductAttrValueEntity&gt; entities = this.baseMapper.selectList(new QueryWrapper&lt;ProductAttrValueEntity&gt;().eq(&quot;spu_id&quot;, spuId));
+    return entities;
+}
+
+/**
+    * 修改SPU属性
+    * @param spuId
+    * @param entities
+    */
+@Transactional
+@Override
+public void updateSpuAttr(Long spuId, List&lt;ProductAttrValueEntity&gt; entities) {
+    //1. 删除原有属性
+    this.baseMapper.delete(new QueryWrapper&lt;ProductAttrValueEntity&gt;().eq(&quot;spu_id&quot;, spuId));
+    //2. 插入新属性
+    List&lt;ProductAttrValueEntity&gt; collect = entities.stream().map(item -&gt; {
+        item.setSpuId(spuId);
+        return item;
+    }).collect(Collectors.toList());
+    this.saveBatch(collect);
+}
+</code></pre>
+<figure data-type="image" tabindex="3"><img src="https://dxone1.github.io//post-images/1636694892686.png" alt="" loading="lazy"></figure>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[电商项目 day7：发布商品功能]]></title>
         <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day7/</id>
@@ -3752,38 +3965,6 @@ commit并push到gitee项目仓库<br>
 <h2 id="3-数据库设计">3 数据库设计</h2>
 <p>根据模块分库分表，sql语句已提供。建库建表后结果如图<br>
 <img src="https://dxone1.github.io//post-images/1635773709958.png" alt="" loading="lazy"></p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[Hello Gridea]]></title>
-        <id>https://dxone1.github.io/post/hello-gridea/</id>
-        <link href="https://dxone1.github.io/post/hello-gridea/">
-        </link>
-        <updated>2018-12-11T16:00:00.000Z</updated>
-        <summary type="html"><![CDATA[<p>👏  欢迎使用 <strong>Gridea</strong> ！<br>
-✍️  <strong>Gridea</strong> 一个静态博客写作客户端。你可以用它来记录你的生活、心情、知识、笔记、创意... ...</p>
-]]></summary>
-        <content type="html"><![CDATA[<p>👏  欢迎使用 <strong>Gridea</strong> ！<br>
-✍️  <strong>Gridea</strong> 一个静态博客写作客户端。你可以用它来记录你的生活、心情、知识、笔记、创意... ...</p>
-<!-- more -->
-<p><a href="https://github.com/getgridea/gridea">Github</a><br>
-<a href="https://gridea.dev/">Gridea 主页</a><br>
-<a href="http://fehey.com/">示例网站</a></p>
-<h2 id="特性">特性👇</h2>
-<p>📝  你可以使用最酷的 <strong>Markdown</strong> 语法，进行快速创作</p>
-<p>🌉  你可以给文章配上精美的封面图和在文章任意位置插入图片</p>
-<p>🏷️  你可以对文章进行标签分组</p>
-<p>📋  你可以自定义菜单，甚至可以创建外部链接菜单</p>
-<p>💻  你可以在 <strong>Windows</strong>，<strong>MacOS</strong> 或 <strong>Linux</strong> 设备上使用此客户端</p>
-<p>🌎  你可以使用 <strong>𝖦𝗂𝗍𝗁𝗎𝖻 𝖯𝖺𝗀𝖾𝗌</strong> 或 <strong>Coding Pages</strong> 向世界展示，未来将支持更多平台</p>
-<p>💬  你可以进行简单的配置，接入 <a href="https://github.com/gitalk/gitalk">Gitalk</a> 或 <a href="https://github.com/SukkaW/DisqusJS">DisqusJS</a> 评论系统</p>
-<p>🇬🇧  你可以使用<strong>中文简体</strong>或<strong>英语</strong></p>
-<p>🌁  你可以任意使用应用内默认主题或任意第三方主题，强大的主题自定义能力</p>
-<p>🖥  你可以自定义源文件夹，利用 OneDrive、百度网盘、iCloud、Dropbox 等进行多设备同步</p>
-<p>🌱 当然 <strong>Gridea</strong> 还很年轻，有很多不足，但请相信，它会不停向前 🏃</p>
-<p>未来，它一定会成为你离不开的伙伴</p>
-<p>尽情发挥你的才华吧！</p>
-<p>😘 Enjoy~</p>
 ]]></content>
     </entry>
 </feed>
