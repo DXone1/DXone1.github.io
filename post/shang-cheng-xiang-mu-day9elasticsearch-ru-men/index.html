@@ -2,23 +2,19 @@
   <head>
     <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>关于 | Gridea</title>
+<title>商城项目 day9：elasticSearch入门 | Gridea</title>
 <link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636804121537">
 <link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
 <link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
-<link rel="alternate" type="application/atom+xml" title="关于 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day9：elasticSearch入门 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
 
 
 
-    <meta name="description" content="
-欢迎来到我的小站呀，很高兴遇见你！🤝
+    <meta name="description" content="Elasticsearch是一个基于Apache Lucene(TM)的开源搜索引擎。无论在开源还是专有领域，Lucene可以被认为是迄今为止最先进、性能最好的、功能最全的搜索引擎库。
+特点：
 
-🏠 关于本站
-👨‍💻 博主是谁
-⛹ 兴趣爱好
-📬 联系我呀
-..." />
+分布式的实时文件存储，每个字段都被索引并可被..." />
     <meta name="keywords" content="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
     <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
@@ -81,37 +77,67 @@
         <div class="post-detail">
           <article class="post">
             <h2 class="post-title">
-              关于
+              商城项目 day9：elasticSearch入门
             </h2>
             <div class="post-info">
               <span>
-                2019-01-25
+                2021-11-12
               </span>
               <span>
-                1 min read
+                2 min read
               </span>
               
             </div>
             
             <div class="post-content-wrapper">
               <div class="post-content">
-                <blockquote>
-<p>欢迎来到我的小站呀，很高兴遇见你！🤝</p>
-</blockquote>
-<h2 id="关于本站">🏠 关于本站</h2>
-<h2 id="博主是谁">👨‍💻 博主是谁</h2>
-<h2 id="兴趣爱好">⛹ 兴趣爱好</h2>
-<h2 id="联系我呀">📬 联系我呀</h2>
+                <p>Elasticsearch是一个基于Apache Lucene(TM)的开源搜索引擎。无论在开源还是专有领域，Lucene可以被认为是迄今为止最先进、性能最好的、功能最全的搜索引擎库。<br>
+特点：</p>
+<ul>
+<li>分布式的实时文件存储，每个字段都被索引并可被搜索</li>
+<li>分布式的实时分析搜索引擎--做不规则查询</li>
+<li>可以扩展到上百台服务器，处理PB级结构化或非结构化数据<br>
+Elasticsearch也使用Java开发并使用Lucene作为其核心来实现所有索引和搜索的功能，但是它的目的是通过简单的RESTful API来隐藏Lucene的复杂性，从而让全文搜索变得简单。<br>
+ES能做什么？<br>
+全文检索（全部字段）、模糊查询（搜索）、数据分析（提供分析语法，例如聚合）</li>
+</ul>
+<h2 id="概念-以mysql为对照">概念-以mysql为对照</h2>
+<p>index ：插入（动词）/database（名词）<br>
+type：表<br>
+document：记录 json格式<br>
+属性<br>
+<img src="https://dxone1.github.io//post-images/1636709631846.png" alt="" loading="lazy"><br>
+倒排索引全文检索<br>
+<img src="https://dxone1.github.io//post-images/1636710374484.png" alt="" loading="lazy"><br>
+es默认存储在内存中，需要将mysql数据放入es中进行全文检索</p>
+<h2 id="docker安装es">Docker安装ES</h2>
+<p>ES可视化界面<br>
+<img src="https://dxone1.github.io//post-images/1636712465525.png" alt="" loading="lazy"></p>
+<h2 id="使用">使用</h2>
+<p>GET /_cat/nodes： 查看所有节点<br>
+GET /_cat/health： 查看 es 健康状况<br>
+GET /_cat/master： 查看主节点<br>
+GET /_cat/indices： 查看所有索引 show databases;<br>
+增删改查使用不同类型的Http请求完成。也可以使用_bulk实现批量操作。<br>
+高级：<br>
+bool<br>
+must/must not<br>
+term<br>
+match<br>
+聚合 aggregations：均值，分类，最大最小值......<br>
+映射 mapping：定义一个文档及其所包含的属性如何存储和索引<br>
+ES7及以后已经移除了Type，即索引之下就是文档<br>
+索引新建和迁移索引<br>
+分词</p>
 
               </div>
               <div class="toc-container">
                 <ul class="markdownIt-TOC">
 <li>
 <ul>
-<li><a href="#%E5%85%B3%E4%BA%8E%E6%9C%AC%E7%AB%99">🏠 关于本站</a></li>
-<li><a href="#%E5%8D%9A%E4%B8%BB%E6%98%AF%E8%B0%81">👨‍💻 博主是谁</a></li>
-<li><a href="#%E5%85%B4%E8%B6%A3%E7%88%B1%E5%A5%BD">⛹ 兴趣爱好</a></li>
-<li><a href="#%E8%81%94%E7%B3%BB%E6%88%91%E5%91%80">📬 联系我呀</a></li>
+<li><a href="#%E6%A6%82%E5%BF%B5-%E4%BB%A5mysql%E4%B8%BA%E5%AF%B9%E7%85%A7">概念-以mysql为对照</a></li>
+<li><a href="#docker%E5%AE%89%E8%A3%85es">Docker安装ES</a></li>
+<li><a href="#%E4%BD%BF%E7%94%A8">使用</a></li>
 </ul>
 </li>
 </ul>
@@ -121,6 +147,15 @@
           </article>
         </div>
 
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/dian-shang-xiang-mu-fan-wai-guan-li-ping-tai-ji-chu-gong-neng-shu-li/">
+              <h3 class="post-title">
+                电商项目 番外：管理平台基础功能梳理
+              </h3>
+            </a>
+          </div>
         
 
         

@@ -1,0 +1,320 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day9：elasticSearch入门和整合 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636804121537">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day9：elasticSearch入门和整合 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="Elasticsearch是一个基于Apache Lucene(TM)的开源搜索引擎。无论在开源还是专有领域，Lucene可以被认为是迄今为止最先进、性能最好的、功能最全的搜索引擎库。
+特点：
+
+分布式的实时文件存储，每个字段都被索引并可被..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636804121537" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day9：elasticSearch入门和整合
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-12
+              </span>
+              <span>
+                5 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>Elasticsearch是一个基于Apache Lucene(TM)的开源搜索引擎。无论在开源还是专有领域，Lucene可以被认为是迄今为止最先进、性能最好的、功能最全的搜索引擎库。<br>
+特点：</p>
+<ul>
+<li>分布式的实时文件存储，每个字段都被索引并可被搜索</li>
+<li>分布式的实时分析搜索引擎--做不规则查询</li>
+<li>可以扩展到上百台服务器，处理PB级结构化或非结构化数据<br>
+Elasticsearch也使用Java开发并使用Lucene作为其核心来实现所有索引和搜索的功能，但是它的目的是通过简单的RESTful API来隐藏Lucene的复杂性，从而让全文搜索变得简单。<br>
+ES能做什么？<br>
+全文检索（全部字段）、模糊查询（搜索）、数据分析（提供分析语法，例如聚合）</li>
+</ul>
+<h2 id="概念-以mysql为对照">概念-以mysql为对照</h2>
+<p>index ：插入（动词）/database（名词）<br>
+type：表<br>
+document：记录 json格式<br>
+属性<br>
+<img src="https://dxone1.github.io//post-images/1636709631846.png" alt="" loading="lazy"><br>
+倒排索引全文检索<br>
+<img src="https://dxone1.github.io//post-images/1636710374484.png" alt="" loading="lazy"><br>
+es默认存储在内存中，需要将mysql数据放入es中进行全文检索</p>
+<h2 id="docker安装es">Docker安装ES</h2>
+<p>ES可视化界面<br>
+<img src="https://dxone1.github.io//post-images/1636712465525.png" alt="" loading="lazy"></p>
+<h2 id="使用">使用</h2>
+<p>GET /_cat/nodes： 查看所有节点<br>
+GET /_cat/health： 查看 es 健康状况<br>
+GET /_cat/master： 查看主节点<br>
+GET /_cat/indices： 查看所有索引 show databases;<br>
+增删改查使用不同类型的Http请求完成。也可以使用_bulk实现批量操作。<br>
+高级：<br>
+bool<br>
+must/must not<br>
+term<br>
+match<br>
+聚合 aggregations：均值，分类，最大最小值......<br>
+映射 mapping：定义一个文档及其所包含的属性如何存储和索引<br>
+ES7及以后已经移除了Type，即索引之下就是文档<br>
+索引新建和迁移索引<br>
+分词：在ES中安装ik分词器支持中文分词，支持自定义词库。通过安装Nginx返回词库信息：nginx作为分词的存储服务器，ik通过远程获取该分词器中的词库信息：存储在Nginx -&gt; /mydata/nginx/html/es/dict.txt中</p>
+<h2 id="整合java后端">整合Java后端</h2>
+<p>1） 、 9300： TCP</p>
+<ul>
+<li>spring-data-elasticsearch:transport-api.jar；
+<ul>
+<li>springboot 版本不同， transport-api.jar 不同， 不能适配 es 版本</li>
+<li>7.x 已经不建议使用， 8 以后就要废弃</li>
+</ul>
+</li>
+</ul>
+<p>2） 、 9200： HTTP，发送请求获取</p>
+<ul>
+<li>JestClient： 非官方， 更新慢</li>
+<li>RestTemplate： 模拟发 HTTP 请求， ES 很多操作需要自己封装， 麻烦</li>
+<li>HttpClient： 同上</li>
+<li>Elasticsearch-Rest-Client： 官方 RestClient， 封装了 ES 操作， API 层次分明， 上手简单</li>
+</ul>
+<p>选择Elasticsearch subproject :client:rest-high-level来进行，创建一个新的项目作为检索服务。</p>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.elasticsearch.client&lt;/groupId&gt;
+    &lt;artifactId&gt;elasticsearch-rest-high-level-client&lt;/artifactId&gt;
+    &lt;version&gt;7.4.2&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>编写配置</li>
+</ol>
+<pre><code class="language-java">@Bean
+RestHighLevelClient client() {
+    RestClientBuilder builder = RestClient.builder(new HttpHost(&quot;192.168.180.3&quot;, 9200,
+&quot;http&quot;));
+    return new RestHighLevelClient(builder);
+}
+</code></pre>
+<ol start="3">
+<li>requestOptions：请求的安全访问信息，index操作</li>
+</ol>
+<pre><code class="language-java">/**
+    * 测试使用REST_Client进行elastic_search的index操作
+    * @throws IOException
+    */
+@Test
+public void indexData() throws IOException {
+    IndexRequest indexRequest = new IndexRequest(&quot;users&quot;);
+    indexRequest.id(&quot;1&quot;);
+    //indexRequest.source(&quot;userName&quot;,&quot;zhangsan&quot;,&quot;age&quot;,18,&quot;gender&quot;,&quot;男&quot;);
+    User user = new User();
+    user.setUserName(&quot;张三&quot;);
+    user.setAge(18);
+    user.setGender(&quot;男&quot;);
+    // 转为json
+    String jsonString = JSON.toJSONString(user);
+    indexRequest.source(jsonString, XContentType.JSON);
+    // 发送请求执行index操作，带上Options
+    IndexResponse index = client.index(indexRequest, MallElasticSearchConfig.COMMON_OPTIONS);
+    System.out.println(index);
+}
+</code></pre>
+<ol start="4">
+<li>复杂的检索</li>
+</ol>
+<pre><code class="language-java">@Test
+public void searchData() throws IOException {
+    SearchRequest searchRequest = new SearchRequest();
+    // 指定index
+    searchRequest.indices(&quot;bank&quot;);
+    // 条件
+    SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+    // match
+    sourceBuilder.query(QueryBuilders.matchQuery(&quot;address&quot;,&quot;mill&quot;));
+    sourceBuilder.aggregation(AggregationBuilders.terms(&quot;ageAgg&quot;).field(&quot;age&quot;).size(10));
+    sourceBuilder.aggregation(AggregationBuilders.avg(&quot;avgBalance&quot;).field(&quot;balance&quot;));
+    System.out.println(sourceBuilder.toString());
+    //sourceBuilder.from();
+    //sourceBuilder.size();
+    //sourceBuilder.aggregation();
+    searchRequest.source(sourceBuilder);
+    // 查询
+    SearchResponse response = client.search(searchRequest, MallElasticSearchConfig.COMMON_OPTIONS);
+    // 结果
+    //System.out.println(response.toString());
+    //Map map = JSON.parseObject(searchRequest.toString(), Map.class);
+    // 获取查到的数据
+    SearchHits hits = response.getHits();
+    SearchHit[] searchHits = hits.getHits();
+    for (SearchHit searchHit : searchHits) {
+        String hitSource = searchHit.getSourceAsString();
+        Account account = JSON.parseObject(hitSource, Account.class);
+        System.out.println(&quot;账号信息: &quot; + account);
+    }
+    // 获取聚合信息
+    Aggregations aggregations = response.getAggregations();
+    Terms ageAgg = aggregations.get(&quot;ageAgg&quot;);
+    for (Terms.Bucket bucket : ageAgg.getBuckets()) {
+        Number keyAsNumber = bucket.getKeyAsNumber();
+        System.out.println(&quot;年龄&quot; + keyAsNumber + &quot;, 人数: &quot; + bucket.getDocCount());
+    }
+
+    Avg avgBalance = aggregations.get(&quot;avgBalance&quot;);
+    System.out.println(&quot;平均薪资: &quot; + avgBalance.getValue());
+}
+</code></pre>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E6%A6%82%E5%BF%B5-%E4%BB%A5mysql%E4%B8%BA%E5%AF%B9%E7%85%A7">概念-以mysql为对照</a></li>
+<li><a href="#docker%E5%AE%89%E8%A3%85es">Docker安装ES</a></li>
+<li><a href="#%E4%BD%BF%E7%94%A8">使用</a></li>
+<li><a href="#%E6%95%B4%E5%90%88java%E5%90%8E%E7%AB%AF">整合Java后端</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day9elasticsearch-ru-men/">
+              <h3 class="post-title">
+                商城项目 day9：elasticSearch入门
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
