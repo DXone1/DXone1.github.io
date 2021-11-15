@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-13T11:48:57.366Z</updated>
+    <updated>2021-11-15T12:22:05.793Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,348 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day10：商品商城]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day10shang-pin-shang-cheng/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day10shang-pin-shang-cheng/">
+        </link>
+        <updated>2021-11-15T02:51:51.000Z</updated>
+        <content type="html"><![CDATA[<p>ES作用：商城全文检索、日志检索...</p>
+<h2 id="商品上架">商品上架</h2>
+<p>ES使用内存，代价很高，所以约定只存储必须的信息，其他的再从mysql中查找。保存以下信息：sku信息、SPU商品规格、品牌、分类...<br>
+<img src="https://dxone1.github.io//post-images/1636945703755.png" alt="" loading="lazy"><br>
+防冗余ES设计：</p>
+<pre><code class="language-json">sku索引{
+    skuId: 1,
+    spuId: 11,
+    xxxx
+}
+
+attr索引{
+    spuId: 11,
+    attrs: [
+        {尺寸: 5寸},
+        {CPU: 高通骁龙845},
+        {分辨率: 全高清}        
+    ]
+}
+</code></pre>
+<p>观察京东商城的设计：当搜索某个选项后可以自动计算出符合该搜索项的所有属性组合。综合考量使用如下的ES索引设计</p>
+<pre><code class="language-json">POST product
+{
+  &quot;mappings&quot;: {
+    &quot;properties&quot;: {
+      &quot;skuId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;spuId&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;
+      },
+      &quot;skuTitle&quot;: {
+        &quot;type&quot;: &quot;text&quot;,
+        &quot;analyzer&quot;: &quot;ik_smart&quot;
+      },
+      &quot;skuPrice&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;
+      },
+      &quot;skuImg&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;saleCount&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;hasStock&quot;: {
+        &quot;type&quot;: &quot;boolean&quot;
+      },
+      &quot;hotScore&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;brandId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;catalogId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;brandName&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;brandImg&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;catalogName&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;attrs&quot;: {
+        &quot;type&quot;: &quot;nested&quot;,
+        &quot;properties&quot;: {
+          &quot;attrId&quot;: {
+            &quot;type&quot;: &quot;long&quot;
+          },
+          &quot;attrName&quot;: {
+            &quot;type&quot;: &quot;keyword&quot;,
+            &quot;index&quot;: false,
+            &quot;doc_values&quot;: false
+          },
+          &quot;attrValue&quot;: {
+            &quot;type&quot;: &quot;keyword&quot;
+          }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<ol>
+<li>创建一个和这个数据格式匹配的TO（领域模型）,完成product和search服务之间的数据传输</li>
+<li>基本属性和品牌分类信息的sql查找和封装</li>
+<li>远程调用库存服务，查看还有没有库存</li>
+</ol>
+<pre><code class="language-java">@Override
+public List&lt;SkuHasStockVo&gt; getSkuHasStock(List&lt;Long&gt; skuIds) {
+    List&lt;SkuHasStockVo&gt; collect = skuIds.stream().map(skuId -&gt; {
+        SkuHasStockVo skuHasStockVo = new SkuHasStockVo();
+        Long count = this.baseMapper.getSkuStock(skuId);
+        skuHasStockVo.setHasStock(count &gt; 0);
+        return skuHasStockVo;
+    }).collect(Collectors.toList());
+    return collect;
+}
+</code></pre>
+<ol start="4">
+<li>远程调用search服务，实现index给ES封装好的SkuEsModel</li>
+</ol>
+<pre><code class="language-java">/**
+    * 保存上架商品数据到ES中
+    * @param skuEsModels
+    */
+@Override
+public boolean productStatusUp(List&lt;SkuEsModel&gt; skuEsModels) throws IOException {
+    // 1. 给ES建立索引，并建立映射关系
+    // 2. 给es保存数据
+    BulkRequest bulkRequest = new BulkRequest();
+    for (SkuEsModel model : skuEsModels) {
+        IndexRequest indexRequest = new IndexRequest(EsConstant.PRODUCT_INDEX);
+        // 设定indexRequest的id,内容
+        indexRequest.id(model.getSkuId().toString());
+        String s = JSON.toJSONString(model);
+        indexRequest.source(s, XContentType.JSON);
+        // 放入bulk中
+        bulkRequest.add(indexRequest);
+    }
+    BulkResponse bulk = client.bulk(bulkRequest, MallElasticSearchConfig.COMMON_OPTIONS);
+    // TODO 如果批量index操作有错误则记录log
+    boolean b = bulk.hasFailures();
+    List&lt;String&gt; collect = Arrays.stream(bulk.getItems()).filter(item -&gt;
+            item.isFailed()
+    ).map(item -&gt; {
+        return item.getId();
+    }).collect(Collectors.toList());
+    log.error(&quot;商品上架出错,{}&quot;, collect);
+
+    return b;
+}
+</code></pre>
+<pre><code class="language-java">/**
+* feign调用流程：
+* 1. 构造请求数据，将对象转为json
+* 2. 发送请求进行执行，执行成功会解码响应数据
+* 3. 执行请求会有重试机制
+*/
+</code></pre>
+<p>总体的javaService如下，流程还是有复杂度的</p>
+<pre><code class="language-java">/**
+    * 商品上架功能
+    * @param spuId
+    */
+@Override
+public void up(Long spuId) {
+    //1. 组装需要的数据
+    // 查询当前SpuId对应的SKU信息
+    List&lt;SkuInfoEntity&gt; skus = skuInfoService.getSkusBySpuId(spuId);
+    List&lt;Long&gt; skuIdList = skus.stream().map(SkuInfoEntity::getSkuId).collect(Collectors.toList());
+
+    // TODO 查询当前Sku的所有可以被检索的规格属性 attrs
+    List&lt;ProductAttrValueEntity&gt; baseAttrs = productAttrValueService.baseAttrListForSpu(spuId);
+    List&lt;Long&gt; attrIds = baseAttrs.stream().map(attr -&gt; {
+        return attr.getAttrId();
+    }).collect(Collectors.toList());
+    // 查询可检索属性的id
+    List&lt;Long&gt; searchAttrIds = attrService.selectSearchAttrs(attrIds);
+    Set&lt;Long&gt; idSet = new HashSet&lt;&gt;(searchAttrIds);
+    // 筛选可检索的属性并封装
+    // 先过滤掉不可检索的属性，再封装成SkuEsModel.Attrs的格式，方便后续保存
+    List&lt;SkuEsModel.Attrs&gt; attrsList = baseAttrs.stream().filter(item -&gt; {
+        return idSet.contains(item.getAttrId());
+    }).map(item -&gt; {
+        SkuEsModel.Attrs attrs1 = new SkuEsModel.Attrs();
+        BeanUtils.copyProperties(item, attrs1);
+        return attrs1;
+    }).collect(Collectors.toList());
+
+    // hasStock 发送远程查看有无库存
+    Map&lt;Long, Boolean&gt; stockMap = null;
+    try {
+        R skuHasStock = wareFeignService.getSkuHasStock(skuIdList);
+        TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt; typeReference = new TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt;() {};
+        stockMap = skuHasStock.getData(typeReference).stream().collect(Collectors.toMap(SkuHasStockVo::getSkuId, item -&gt; item.getHasStock()));
+    } catch (Exception e) {
+        log.error(&quot;库存服务异常,原因{}&quot;,e);
+    }
+
+    // 封装SkuEsModel
+    Map&lt;Long, Boolean&gt; finalStockMap = stockMap;
+    List&lt;SkuEsModel&gt; upProducts = skus.stream().map(sku -&gt; {
+        SkuEsModel esModel = new SkuEsModel();
+        BeanUtils.copyProperties(sku, esModel);
+        esModel.setSkuPrice(sku.getPrice());
+        esModel.setSkuImg(sku.getSkuDefaultImg());
+
+        // 设置库存，没有查询成功就认为有库存返回
+        if(finalStockMap == null) {
+            esModel.setHasStock(true);
+        } else {
+            esModel.setHasStock(finalStockMap.get(sku.getSkuId()));
+        }
+
+        // hotStock 热度评分默认置0
+        esModel.setHotScore(0L);
+
+        // 品牌信息
+        BrandEntity brandEntity = brandService.getById(esModel.getBrandId());
+        esModel.setBrandName(brandEntity.getName());
+        esModel.setBrandImg(brandEntity.getLogo());
+        // 分类信息
+        CategoryEntity categoryEntity = categoryService.getById(esModel.getCatalogId());
+        esModel.setCatalogName(categoryEntity.getName());
+        // 设置SPU的可检索规格属性
+        esModel.setAttrs(attrsList);
+        return esModel;
+    }).collect(Collectors.toList());
+
+    // 发送给ES：提出search的远程调用
+    R r = searchFeignService.productStatusUp(upProducts);
+    if(r.getCode() == 0) {
+        // 远程调用成功
+        // 需要修改SPU的 publish_status 发布状态为已上架
+        this.baseMapper.updateSpuStatus(spuId, ProductConstant.StatusEnum.SPU_UP.getCode());
+
+    } else {
+        // 远程调用失败
+        // TODO 重复调用，接口幂等性问题，重试机制
+
+    }
+}
+</code></pre>
+<p>结果：<br>
+<img src="https://dxone1.github.io//post-images/1636969745665.png" alt="" loading="lazy"></p>
+<h2 id="搭建商城首页">搭建商城首页</h2>
+<h3 id="使用thymeleaf渲染页面">使用thymeleaf渲染页面</h3>
+<p>架构如下：<br>
+<img src="https://dxone1.github.io//post-images/1636970274115.png" alt="" loading="lazy"></p>
+<ol>
+<li>导入thymeleaf的依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-thymeleaf&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>将页面资源放入对应的微服务的项目文件夹：</p>
+<pre><code class="language-txt">静态资源 -&gt; static
+动态页面 -&gt; templates
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1636975188211.png" alt="" loading="lazy"></figure>
+<h3 id="首页渲染分类功能">首页渲染分类功能</h3>
+<ol>
+<li>先设定欢迎页的路径映射，使用Thymeleaf解析</li>
+<li>编写返回渲染分类信息的数据</li>
+</ol>
+<pre><code class="language-java">@GetMapping({&quot;/&quot;, &quot;/index.html&quot;})
+public String indexPage(Model model) {
+    // TODO 查出所有的一级分类
+    List&lt;CategoryEntity&gt; categoryEntities = categoryService.getLevel1Categorys();
+    // 使用model传数据
+    model.addAttribute(&quot;categorys&quot;, categoryEntities);
+    return &quot;index&quot;;
+}
+</code></pre>
+<ol start="3">
+<li>页面取出相关数据并渲染<br>
+一级菜单</li>
+</ol>
+<pre><code class="language-html">&lt;ul&gt;
+    &lt;li th:each=&quot;category : ${categorys}&quot;&gt;
+        &lt;a href=&quot;#&quot; class=&quot;header_main_left_a&quot; th:attr=&quot;ctg-data=${category.catId}&quot;&gt;&lt;b th:text=&quot;${category.name}&quot;&gt;家用电器111&lt;/b&gt;&lt;/a&gt;
+    &lt;/li&gt;
+&lt;/ul&gt;
+</code></pre>
+<p>二三级菜单<br>
+根据需要返回的数据，构建一个vo</p>
+<pre><code class="language-java">@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class Catelog2Vo {
+    private String catalog1Id; //一级父分类的id
+    private List&lt;Object&gt; catalog3List; // 三级子分类
+    private String id;
+    private String name;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Catelog3Vo {
+        private String catalog2Id; //二级父分类的id
+        private String id;
+        private String name;
+    }
+}
+</code></pre>
+<p>给出的js文件会发出请求，编写对应的控制器返回json数据</p>
+<pre><code class="language-java">/**
+    * 返回封装成json格式的二三级分类
+    * @return
+    */
+@Override
+public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
+    // 查出所有一级分类
+    List&lt;CategoryEntity&gt; level1Categorys = this.getLevel1Categorys();
+    // 封装数据
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; map = level1Categorys.stream().collect(Collectors.toMap(k -&gt; k.getCatId().toString(),
+            v -&gt; {
+                // 查询所有一级分类下的二级分类
+                List&lt;CategoryEntity&gt; categoryEntities = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, v.getCatId()));
+                List&lt;Catelog2Vo&gt; catelog2Vos = null;
+                if (categoryEntities != null) {
+                    catelog2Vos = categoryEntities.stream().map(l2 -&gt; {
+                        Catelog2Vo catelog2Vo = new Catelog2Vo(v.getCatId().toString(), null, l2.getCatId().toString(), l2.getName());
+                        List&lt;CategoryEntity&gt; level3Catelog = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, l2.getCatId()));
+                        if(level3Catelog != null) {
+                            List&lt;Catelog2Vo.Catelog3Vo&gt; collect = level3Catelog.stream().map(l3 -&gt; {
+                                Catelog2Vo.Catelog3Vo catelog3Vo = new Catelog2Vo.Catelog3Vo(l2.getCatId().toString(), l3.getCatId().toString(), l3.getName());
+                                return catelog3Vo;
+                            }).collect(Collectors.toList());
+                            catelog2Vo.setCatalog3List(collect);
+                        }
+                        return catelog2Vo;
+                    }).collect(Collectors.toList());
+                }
+                return catelog2Vos;
+            }));
+    return map;
+}
+</code></pre>
+<p>此时分类的渲染是实时从数据库更新的<br>
+<img src="https://dxone1.github.io//post-images/1636978683545.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day9：elasticSearch入门和整合]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day9elasticsearch-ru-men-he-zheng-he/</id>
@@ -2585,983 +2927,6 @@ batchDelete() {
 </code></pre>
 <p>效果如下<br>
 <img src="https://dxone1.github.io//post-images/1636189429981.png" alt="" loading="lazy"></p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 番外：前端基础]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day0qian-duan-ji-chu/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day0qian-duan-ji-chu/">
-        </link>
-        <updated>2021-11-04T02:41:07.000Z</updated>
-        <content type="html"><![CDATA[<p>之前没有什么前端经验，只是简单了解javaScript。本番外篇记录入门级的vue等前端知识学习。</p>
-<h2 id="es6">ES6</h2>
-<p>ECMAScript 6.0（ 以下简称 ES6， ECMAScript 是一种由 Ecma 国际(前身为欧洲计算机制造商协会,英文名称是 European Computer Manufacturers Association)通过 ECMA-262标准化的脚本程序设计语言） 是 JavaScript 语言的下一代标准。<br>
-创建一个项目实操一下！</p>
-<h3 id="1-声明变量">1 声明变量</h3>
-<ol>
-<li>在vscode中新建一个文件夹，新建一个文件：let.htlml</li>
-<li>快捷键shift + !快速给html生成模板</li>
-<li>测试代码：let声明变量的特性</li>
-</ol>
-<pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html lang=&quot;en&quot;&gt;
-&lt;head&gt;
-    &lt;meta charset=&quot;UTF-8&quot;&gt;
-    &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;&gt;
-    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;&gt;
-    &lt;title&gt;Document&lt;/title&gt;
-&lt;/head&gt;
-&lt;body&gt;
-
-    &lt;script&gt;
-        // var 声明的变量往往会越域
-        // let 声明的变量有严格局部作用域
-        {
-            var a = 1;
-            let b = 2;
-        } 
-        console.log(a); // 1
-        console.log(b); // ReferenceError: b is not defined
-        // var 可以声明多次
-        // let 只能声明一次
-        var m = 1
-        var m = 2
-        let n = 3
-        // let n = 4
-        console.log(m) // 2
-        console.log(n) // Identifier 'n' has already been declared
-        // var 会变量提升
-        // let 不存在变量提升
-        console.log(x); // undefined
-        var x = 10;
-        console.log(y); //ReferenceError: y is not defined
-        let y = 20;
-    &lt;/script&gt;
-    
-&lt;/body&gt;
-&lt;/html&gt;
-</code></pre>
-<ol start="4">
-<li>const声明的变量不能再次赋值</li>
-<li>vs code鼠标右键open with live server可以调出浏览器查看</li>
-</ol>
-<h3 id="2-解构表达式">2 解构表达式</h3>
-<ol>
-<li>数组的快速赋值</li>
-</ol>
-<pre><code class="language-html">&lt;script&gt;
-        let arr = [1,2,3];
-
-        let [a,b,c] = arr;
-        
-        console.log(a,b,c);
- &lt;/script&gt;
-</code></pre>
-<ol start="2">
-<li>对象解构<br>
-vs code 的快速格式化代码快捷键是Alt + shift + F，不同于idea的ctrl + alt + L</li>
-</ol>
-<pre><code class="language-js">const person = {
-    name: &quot;jack&quot;,
-    age: 21,
-    language: ['java', 'js', 'css']
-}
-// const name = person.name;
-// const age = person.age;
-// const language = person.language;
-
-const {name:abc, age, language} = person;
-console.log(abc, age, language);
-</code></pre>
-<ol start="3">
-<li>字符串扩展</li>
-</ol>
-<pre><code class="language-js">let str = &quot;hello.vue&quot;;
-console.log(str.startsWith(&quot;hello&quot;));//true
-console.log(str.endsWith(&quot;.vue&quot;));//true
-console.log(str.includes(&quot;e&quot;));//true
-console.log(str.includes(&quot;hello&quot;));//true
-</code></pre>
-<ol start="4">
-<li>字符串模板：用反引号引起的一长串字符串</li>
-</ol>
-<pre><code class="language-js">// 字符串模板
-let ss = `
-            &lt;div&gt;
-                &lt;span&gt;hello world&lt;span&gt;
-            &lt;/div&gt;
-        `
-console.log(ss)
-</code></pre>
-<ol start="5">
-<li>插入变量和表达式或方法：通过${}</li>
-</ol>
-<pre><code class="language-js">// 插值
-function fun() {
-    return &quot;这是一个函数&quot;;
-}
-
-let name = &quot;张三&quot;;
-let age = 18;
-let info = `我是${name}， 今年${age + 10}了，我想说${fun()}`;
-console.log(info)
-</code></pre>
-<h3 id="3-函数">3 函数</h3>
-<ol>
-<li>默认参数</li>
-</ol>
-<pre><code class="language-js">//在 ES6 以前， 我们无法给一个函数参数设置默认值， 只能采用变通写法：
-function add(a, b) {
-    // 判断 b 是否为空， 为空就给默认值 1
-    b = b || 1;
-    return a + b;
-} 
-// 传一个参数
-console.log(add(10));
-
-//现在可以这么写： 直接给参数写上默认值， 没传就会自动使用默认值
-function add2(a, b = 1) {
-    return a + b;
-} 
-// 传一个参数
-console.log(add2(10));
-</code></pre>
-<ol start="2">
-<li>支持不定参数</li>
-</ol>
-<pre><code class="language-js">// 不定参数
-function fun(...values) {
-    console.log(values.length)
-} 
-fun(1, 2) //2
-fun(1, 2, 3, 4) //4
-</code></pre>
-<ol start="3">
-<li>箭头函数</li>
-</ol>
-<pre><code class="language-js">// 箭头函数
-//以前声明一个方法
-// var print = function (obj) {
-// console.log(obj);
-// }
-// 可以简写为：
-var print = obj =&gt; console.log(obj);
-// 测试调用
-print(&quot;hello&quot;);
-</code></pre>
-<p>一个比较复杂的场景：和lambda十分相近</p>
-<pre><code class="language-js">var sum2 = (a,b) =&gt; {
-    c = a + b;
-    return a + c;
-}
-console.log(sum2(2, 4));
-</code></pre>
-<p>实战</p>
-<pre><code class="language-js">//需求， 声明一个对象， hello 方法需要对象的个别属性
-//以前的方式：
-const person = {
-    name: &quot;jack&quot;,
-    age: 21,
-    language: ['java', 'js', 'css']
-} 
-
-function hello(person) {
-    console.log(&quot;hello,&quot; + person.name)
-} 
-
-// 现在的方式: 箭头函数+对象解构！
-var hello2 = ({ name }) =&gt; { console.log(&quot;hello,&quot; + name) };
-//测试
-hello2(person);
-</code></pre>
-<h3 id="4-对象">4 对象</h3>
-<ol>
-<li>keys, values, entries 获取对象属性</li>
-</ol>
-<pre><code class="language-js">const person = {
-    name: &quot;jack&quot;,
-    age: 21,
-    language: ['java', 'js', 'css']
-}
-console.log(Object.keys(person));//[&quot;name&quot;, &quot;age&quot;, &quot;language&quot;]
-console.log(Object.values(person));//[&quot;jack&quot;, 21, Array(3)]
-console.log(Object.entries(person));//[Array(2), Array(2), Array(2)]
-</code></pre>
-<ol start="2">
-<li>assign 复制</li>
-</ol>
-<pre><code class="language-js">const target = { a: 1 };
-const source1 = { b: 2 };
-const source2 = { c: 3 };
-//Object.assign 方法的第一个参数是目标对象， 后面的参数都是源对象。
-Object.assign(target, source1, source2);
-console.log(target)//{a: 1, b: 2, c: 3}
-</code></pre>
-<ol start="3">
-<li>简写声明变量</li>
-</ol>
-<pre><code class="language-js">// 简写声明对象
-const age = 23
-const name = &quot;张三&quot;
-// 传统
-const person1 = { age: age, name: name }
-console.log(person1)
-// ES6： 属性名和属性值变量名一样， 可以省略
-const person2 = { age, name }
-console.log(person2) //{age: 23, name: &quot;张三&quot;}
-</code></pre>
-<ol start="4">
-<li>对象的函数的简写</li>
-</ol>
-<pre><code class="language-js">// 对象的函数属性简写
-let person = {
-    name: &quot;jack&quot;,
-    // 以前：
-    eat: function (food) {
-        console.log(this.name + &quot;在吃&quot; + food);
-    },
-    // 箭头函数版： 这里拿不到 this
-    eat2: food =&gt; console.log(person.name + &quot;在吃&quot; + food),
-    // 简写版：
-    eat3(food) {
-        console.log(this.name + &quot;在吃&quot; + food);
-    }
-} 
-person.eat(&quot;apple&quot;);
-person.eat(&quot;banana&quot;);
-person.eat(&quot;orange&quot;);
-</code></pre>
-<ol start="5">
-<li>对象扩展运算符<br>
-使用...表示取出参数所有可遍历的属性拷贝到当前对象中</li>
-</ol>
-<pre><code class="language-js">// 1、 拷贝对象（深拷贝）
-let p1 = { name: &quot;Amy&quot;, age: 15 }
-let someone = { ...p1 }
-console.log(someone) //{name: &quot;Amy&quot;, age: 15}
-
-// 2、 合并对象
-let age1 = { age: 15 }
-let name1 = { name: &quot;Amy&quot; }
-let person2 = { ...age1, ...name1 } //如果两个对象的字段名重复， 后面对象字段值会覆盖前面对象的字段值
-console.log(person2) //{age: 15, name: &quot;Amy&quot;}
-</code></pre>
-<h3 id="5-map与reduce">5 map与reduce</h3>
-<ol>
-<li>map()<br>
-和 java8的stream流特性很像，接收一个函数，将数组的每个元素用这个函数处理后返回一个新的结果数组，实例如下</li>
-</ol>
-<pre><code class="language-js">let arr = ['1','20','-5','3'];
-arr = arr.map((item) =&gt; {
-    return item * 2;
-})
-console.log(arr);
-</code></pre>
-<ol start="2">
-<li>
-<p>reduce()<br>
-为数组中每一个的元素执行回调函数，但是不包括数组中被删除或从未被赋值的元素， 接受四个参数： 初始值（或者上一次回调函数的返回值） ， 前元素值， 当前索引， 调用 reduce 的数组。<br>
-callback （执行数组中每个值的函数， 包含四个参数）</p>
-<ul>
-<li>previousValue （上一次调用回调返回的值， 或者是提供的初始值（initialValue） ）</li>
-<li>currentValue （数组中当前被处理的元素）</li>
-<li>index （当前元素在数组中的索引）</li>
-<li>array （调用 reduce 的数组）</li>
-</ul>
-<p>initialValue （作为第一次调用 callback 的第一个参数。 ）</p>
-</li>
-</ol>
-<pre><code class="language-js">let arr = ['1','20','-5','3'];
-arr = arr.map(item =&gt; item * 2)
-console.log(arr);
-
-// 求和
-let result = arr.reduce((a, b)=&gt;{
-    console.log(&quot;上次处理后的值：&quot; + a);
-    console.log(&quot;当前值：&quot; + b);
-    return a + b;
-});
-console.log(result);
-</code></pre>
-<p>可以设置初始值，设为100：</p>
-<pre><code class="language-js">let result = arr.reduce((a, b)=&gt;{
-    console.log(&quot;上次处理后的值：&quot; + a);
-    console.log(&quot;当前值：&quot; + b);
-    return a + b;
-},100);
-</code></pre>
-<h3 id="6-promise-异步操作">6 Promise 异步操作</h3>
-<p>如果在一个异步操作的场景中有如下代码</p>
-<pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html lang=&quot;en&quot;&gt;
-
-&lt;head&gt;
-    &lt;meta charset=&quot;UTF-8&quot;&gt;
-    &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;&gt;
-    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;&gt;
-    &lt;title&gt;Document&lt;/title&gt;
-    &lt;script&gt;src = &quot;https://cdn.bootcss.com/jquery/3.4.1/jquery.min.js&quot;&lt;/script&gt;
-&lt;/head&gt;
-
-&lt;body&gt;
-    &lt;script&gt;
-        $.ajax({
-            url: &quot;mock/user.json&quot;,
-            success(data) {
-                console.log(&quot;查询用户： &quot;, data);
-                $.ajax({
-                    url: `mock/user_course_${data.id}.json`,
-                    success(data) {
-                        console.log(&quot;查询到课程： &quot;, data);
-                        $.ajax({
-                            url: `mock/course_score_${data.id}.json`,
-                            success(data) {
-                                console.log(&quot;查询到分数： &quot;, data);
-                            },
-                            error(error) {
-                                console.log(&quot;出现异常了： &quot; + error);
-                            }
-                        });
-                    },
-                    error(error) {
-                        console.log(&quot;出现异常了： &quot; + error);
-                    }
-                });
-            },
-            error(error) {
-                console.log(&quot;出现异常了： &quot; + error);
-            }
-        })
-    &lt;/script&gt;
-&lt;/body&gt;
-
-&lt;/html&gt;
-</code></pre>
-<p>在mock文件夹下有如下三个json文件</p>
-<pre><code class="language-json">// user.json
-{
-    &quot;id&quot;: 1,
-    &quot;name&quot;: &quot;zhangsan&quot;,
-    &quot;password&quot;: &quot;123456&quot;
-}
-
-// user_coruse_1.json
-{
-    &quot;id&quot;: 10,
-    &quot;name&quot;: &quot;chinese&quot;
-}
-
-// course_score_10.json
-{
-    &quot;id&quot;: 100,
-    &quot;score&quot;: 90
-}
-</code></pre>
-<p>案例： 用户登录， 并展示该用户的各科成绩。 在页面发送两次请求：</p>
-<ol>
-<li>查询用户， 查询成功说明可以登录</li>
-<li>查询用户成功， 查询科目</li>
-<li>根据科目的查询结果， 获取去成绩<br>
-这样层层嵌套就十分复杂！</li>
-</ol>
-<h4 id="使用promise的回调1">使用Promise的回调1</h4>
-<pre><code class="language-js">let p = new Promise((resolve, reject) =&gt; {
-    $.ajax({
-        url: &quot;mock/user.json&quot;,
-        success: function (data) {
-            console.log(&quot;查询用户成功：&quot;, data)
-            resolve(data);
-        },
-        error: function (err) {
-            reject(err);
-        }
-    });
-});
-
-p.then((obj) =&gt; {
-    return new Promise((resolve, reject) =&gt; {
-        $.ajax({
-            url: `mock/user_course_${obj.id}.json`,
-            success: function (data) {
-                console.log(&quot;查询用户课程成功:&quot;, data)
-                resolve(data);
-            },
-            error: function (err) {
-                reject(err);
-            }
-        });
-    });
-}).then((data) =&gt; {
-    $.ajax({
-        url: `mock/course_score_${data.id}.json`,
-        success: function (data) {
-            console.log(&quot;查询课程得分成功:&quot;, data)
-        },
-        error: function (err) {
-        }
-    });
-})
-</code></pre>
-<h4 id="使用promise的回调2">使用Promise的回调2</h4>
-<pre><code class="language-js">function get(url, data) {
-    return new Promise((resolve, reject) =&gt; {
-        $.ajax({
-            url: url,
-            data: data,
-            success: function (data) {
-                resolve(data);
-            },
-            error: function (err) {
-                reject(err);
-            }
-        })
-    });
-}
-
-get(&quot;mock/user.json&quot;)
-    .then((data) =&gt; {
-        console.log(&quot;用户查询成功: &quot;, data);
-        return get(`mock/user_course_${data.id}.json`);
-    })
-    .then((data) =&gt; {
-        console.log(&quot;课程查询成功: &quot;, data);
-        return get(`mock/course_score_${data.id}.json`);
-    })
-    .then((data) =&gt; {
-        console.log(&quot;成绩查询成功: &quot;, data);
-    })
-    .catch((err) =&gt; {
-        console.log(&quot;出现异常: &quot;, err)
-    });
-</code></pre>
-<h3 id="7-模块化">7 模块化</h3>
-<p>模块化就是把代码进行拆分， 方便重复利用。 类似 java 中的导包： 要使用一个包， 必须先导包。 而 JS 中没有包的概念， 换来的是<strong>模块</strong>。使用import和export命令</p>
-<pre><code class="language-js">var name = &quot;jack&quot;
-var age = 21
-function add(a, b) {
-    return a + b;
-}
-export {name,age,add}
-/***********************/
-import abc from &quot;./hello.js&quot;
-import {name, age, add} from &quot;./user&quot;
-
-abc.sum(1, 2);
-console.log(name);
-add(1,3);
-</code></pre>
-<h2 id="vue">Vue</h2>
-<h3 id="mvvm思想">MVVM思想</h3>
-<ul>
-<li>M： 即 Model， 模型， 包括数据和一些基本操作</li>
-<li>V： 即 View， 视图， 页面渲染结果</li>
-<li>VM： 即 View-Model， 模型与视图间的双向操作（无需开发人员干涉）<br>
-<img src="https://dxone1.github.io//post-images/1636009915747.png" alt="" loading="lazy"></li>
-</ul>
-<h3 id="相关信息">相关信息</h3>
-<p>官网： https://cn.vuejs.org/<br>
-参考： https://cn.vuejs.org/v2/guide/<br>
-Git 地址： https://github.com/vuejs</p>
-<h3 id="学习">学习</h3>
-<p>在vscode中使用npm管理工具导入Vue</p>
-<ol>
-<li><code>npm init -y</code> 初始化项目、</li>
-<li><code>npm install vue</code>安装vue</li>
-<li>html中使用</li>
-</ol>
-<pre><code class="language-html">&lt;script src=&quot;./node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-</code></pre>
-<p>引入vue.js<br>
-<strong>测试样例：</strong></p>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;!-- {{}}是Vue提供的插值占位符 --&gt;
-    &lt;h1&gt; {{name}},非常帅&lt;/h1&gt;
-&lt;/div&gt;
-
-&lt;script src=&quot;./node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-
-&lt;script&gt;
-    let vm = new Vue({
-        // el接管div,通过id选择
-        el: &quot;#app&quot;,
-        // data可能有许多数据
-        data: {
-            name: &quot;张三&quot;,
-        }
-    });
-&lt;/script&gt;
-</code></pre>
-<p>在浏览器控制台可以更改name属性，实时更新<br>
-效果：<br>
-<img src="https://dxone1.github.io//post-images/1636010691042.png" alt="" loading="lazy"></p>
-<h3 id="vue基本语法与插件">Vue基本语法与插件</h3>
-<ol>
-<li>双向绑定<br>
-模型变化会导致视图的变化，视图变化也会引起模型变化</li>
-</ol>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;!-- {{}}是Vue提供的插值占位符, 实现双向绑定 --&gt;
-    &lt;input type=&quot;text&quot; v-model=&quot;num&quot;&gt;
-    &lt;!-- 点赞实时增加 --&gt;
-    &lt;button v-on:click=&quot;num++&quot;&gt;点赞&lt;/button&gt;
-    &lt;button v-on:click=&quot;cancle&quot;&gt;取消点赞&lt;/button&gt;
-    &lt;h1&gt; {{name}},非常帅，有{{num}}个人为他点赞&lt;/h1&gt;
-&lt;/div&gt;
-
-&lt;script src=&quot;./node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-
-&lt;script&gt;
-    let vm = new Vue({
-        // el绑定元素
-        el: &quot;#app&quot;,
-        // data封装数据
-        data: {
-            name: &quot;张三&quot;,
-            num: 1
-        },
-        // method封装函数
-        methods: {
-            cancle() {
-                this.num--;
-            }
-        }
-    });
-&lt;/script&gt;
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1636011475076.png" alt="" loading="lazy"><br>
-v-xx：指令，可以简单的进行dom的操作！<br>
-插件安装Vetur和Vue 2 Snippets，方便Vue的语法提示等功能</p>
-<h3 id="指令">指令</h3>
-<ol>
-<li>{{}}插值表达式</li>
-</ol>
-<ul>
-<li>该表达式支持 JS 语法， 可以调用 js 内置函数（必须有返回值</li>
-<li>表达式必须有返回结果。 例如 1 + 1， 没有结果的表达式不允许使用， 如： let a = 1 + 1;</li>
-<li>可以直接获取 Vue 实例中定义的数据或函数</li>
-</ul>
-<ol start="2">
-<li>v-html和v-text</li>
-</ol>
-<ul>
-<li>v-text： 将数据输出到元素内部， 如果输出的数据有 HTML 代码， 会作为普通文本输出</li>
-<li>v-html： 将数据输出到元素内部， 如果输出的数据有 HTML 代码， 会被渲染</li>
-</ul>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    {{msg}} &lt;br/&gt;
-    &lt;!-- 使用v-html和v-txt不会出现插值闪烁的现象 --&gt;
-    &lt;!-- 以html形式展现，可以显示出H1样式 --&gt;
-    &lt;span v-html=&quot;msg&quot;&gt;&lt;/span&gt;&lt;br/&gt;
-    &lt;!-- 展示原先的样式，不会显示大标题 --&gt;
-    &lt;span v-text=&quot;msg&quot;&gt;&lt;/span&gt;&lt;br/&gt;    
-&lt;/div&gt;
-</code></pre>
-<ol start="3">
-<li>v-bind<br>
-html 属性不能使用双大括号形式绑定， 我们使用 v-bind 指令给 HTML 标签属性绑定值；而且在将 <code>v-bind</code> 用于 <code>class</code> 和 <code>style</code> 时， Vue.js 做了专门的增强</li>
-</ol>
-<pre><code class="language-html">&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;div id=&quot;app&quot;&gt;
-    &lt;a v-bind:href=&quot;link&quot;&gt;gogogo&lt;/a&gt;
-    &lt;!-- 只有对应的属性为true才添加class --&gt;
-    &lt;!-- style动态绑定 --&gt;
-    &lt;span v-bind:class=&quot;{active:isActive,'text-danger':hasError}&quot; 
-        v-bind:style=&quot;{color: color1, 'fontSize': size}&quot;&gt;你好&lt;/span&gt;
-&lt;/div&gt;
-
-&lt;script&gt;
-    let vm = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            link: &quot;https://www.baidu.com&quot;,
-            isActive: true,
-            hasError: true,
-            color1: 'red',
-            size: '36px'
-        }
-    });
-&lt;/script&gt;
-</code></pre>
-<p><strong>以上均为单向绑定。</strong><br>
-4. v-model 双向绑定</p>
-<pre><code class="language-html">&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt; 
-&lt;!-- 一般用于表单项 --&gt;
-&lt;div id=&quot;app&quot;&gt;
-    精通的语言:
-        &lt;!-- 通过v-model双向绑定到Vue中 --&gt;
-        &lt;input type=&quot;checkbox&quot; v-model=&quot;language&quot; value=&quot;Java&quot;&gt;Java&lt;br/&gt;
-        &lt;input type=&quot;checkbox&quot; v-model=&quot;language&quot; value=&quot;PHP&quot;&gt;PHP&lt;br/&gt;
-        &lt;input type=&quot;checkbox&quot; v-model=&quot;language&quot; value=&quot;Python&quot;&gt;Python&lt;br/&gt;
-    选中了 {{language.join(&quot;,&quot;)}}
-&lt;/div&gt;
-
-&lt;script&gt;
-    let vm = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            language: []
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<ol start="5">
-<li>v-on配合修饰符实现功能</li>
-</ol>
-<ul>
-<li>事件修饰符
-<ul>
-<li><code>.stop</code> ： 阻止事件冒泡到父元素</li>
-<li><code>.prevent</code>： 阻止默认事件发生</li>
-<li><code>.capture</code>： 使用事件捕获模式</li>
-<li><code>.self</code>： 只有元素自身触发事件才执行。 （冒泡或捕获的都不执行）</li>
-<li><code>.once</code>： 只执行一次</li>
-</ul>
-</li>
-<li>按键修饰符
-<ul>
-<li><code>.enter</code></li>
-<li><code>.tab</code></li>
-<li><code>.delete</code> (捕获“删除”和“退格”键)</li>
-<li><code>.esc</code></li>
-<li><code>.space</code></li>
-<li><code>.up</code></li>
-<li><code>.down</code></li>
-<li><code>.left</code></li>
-<li><code>.right</code></li>
-</ul>
-</li>
-<li>组合按钮
-<ul>
-<li><code>.ctrl</code></li>
-<li><code>.alt</code></li>
-<li><code>.shift</code></li>
-</ul>
-</li>
-</ul>
-<pre><code class="language-html">&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-
-&lt;div id=&quot;app&quot;&gt;
-   &lt;button v-on:click=&quot;num++&quot;&gt;点赞&lt;/button&gt;
-   &lt;button @click=&quot;cancel&quot;&gt;取消&lt;/button&gt;
-   &lt;h1&gt;有{{num}}个赞&lt;/h1&gt;
-   &lt;!-- 阻止事件冒泡 --&gt;
-   &lt;div style=&quot;border: 1px solid red;padding: 20px;&quot; @click.once=&quot;hello&quot;&gt;
-       &lt;div style=&quot;border: 1px solid blue;padding: 20px;&quot; @click.stop=&quot;hello&quot;&gt;
-           &lt;a href=&quot;https://www.baidu.com&quot; @click.prevent.stop=&quot;hello&quot;&gt;去百度&lt;/a&gt;
-       &lt;/div&gt;
-   &lt;/div&gt;
-
-   &lt;!-- 按键修饰符 --&gt;
-   &lt;!-- 上键加2，下键减2，单击鼠标+ctrl变成10 --&gt;
-   &lt;input type=&quot;text&quot; v-model=&quot;num&quot; v-on:keyup.up=&quot;num+=2&quot; @keyup.down=&quot;num-=2&quot;
-           @click.ctrl=&quot;num=10&quot;&gt;&lt;br/&gt;        
-&lt;/div&gt;
-
-&lt;script&gt;
-   let vm = new Vue({
-       el: &quot;#app&quot;,
-       data: {
-           num: 0
-       },
-       methods: {
-           cancel() {
-               this.num--;
-           },
-           hello() {
-               alert(&quot;点击了&quot;)
-           }
-       }
-   })
-&lt;/script&gt;
-</code></pre>
-<ol start="6">
-<li>v-for 遍历显示<br>
-三种语法：</li>
-</ol>
-<ul>
-<li><code>v-for=&quot;item in items&quot;</code></li>
-<li><code>v-for=&quot;(item,index) in items&quot;</code></li>
-<li>(v,k)
-<ul>
-<li><code>v-for=&quot;value in object&quot;</code></li>
-<li><code>v-for=&quot;(value,key) in object&quot;</code></li>
-<li><code>v-for=&quot;(value,key,index) in object&quot;</code></li>
-</ul>
-</li>
-</ul>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;ul&gt;
-        &lt;!-- v-for 元素遍历 --&gt;
-        &lt;li v-for=&quot;user in users&quot;&gt;
-            {{user.name}} - {{user.gender}} - {{user.age}}
-        &lt;/li&gt;
-        &lt;!-- v-for 序号遍历 --&gt;
-        &lt;li v-for=&quot;(user, index) in users&quot;&gt;
-            {{index + 1}} - {{user.name}} - {{user.gender}} - {{user.age}}&lt;br&gt;
-
-            对象信息:
-            &lt;span v-for=&quot;(v,k,i) in user&quot;&gt;
-                {{k}} == {{v}} == {{i}}&lt;br&gt;
-            &lt;/span&gt;
-        &lt;/li&gt;          
-    &lt;/ul&gt;
-&lt;/div&gt;
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-    let app = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            users: [
-                { name: '柳岩', gender: '女', age: 21 },
-                { name: '张三', gender: '男', age: 18 },
-                { name: '范冰冰', gender: '女', age: 24 },
-                { name: '刘亦菲', gender: '女', age: 18 },
-                { name: '古力娜扎', gender: '女', age: 25 }
-            ]
-        },
-    })
-&lt;/script&gt;
-</code></pre>
-<p>使用<code>:key</code>唯一标识</p>
-<pre><code class="language-html">&lt;ul&gt;
-    &lt;li v-for=&quot;(item,index) in items&quot; :key=”index”&gt;&lt;/li&gt;
-&lt;/ul&gt;
-</code></pre>
-<ol start="7">
-<li>v-if 和 v-show<br>
-v-if，顾名思义，条件判断。当得到结果为 true 时，所在的元素才会被渲染。<br>
-v-show，当得到结果为 true 时，所在的元素才会被显示。使用display:none隐藏<br>
-语法： <code>v-if=&quot;布尔表达式&quot;</code>, <code>v-show=&quot;布尔表达式&quot;</code>,</li>
-</ol>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;button v-on:click=&quot;show = !show&quot;&gt;点我呀&lt;/button&gt;
-    &lt;br&gt;
-    &lt;h1 v-if=&quot;show&quot;&gt;
-        看到我啦？ ！
-    &lt;/h1&gt;
-    &lt;h1 v-show=&quot;show&quot;&gt;
-        看到我啦？ ！ show
-    &lt;/h1&gt;
-&lt;/div&gt;
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-    let app = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            show: true
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<ol start="8">
-<li>v-else和v-else-if</li>
-</ol>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;button v-on:click=&quot;random=Math.random()&quot;&gt;点我呀
-    &lt;/button&gt;&lt;span&gt;{{random}}&lt;/span&gt;
-    &lt;h1 v-if=&quot;random &gt;= 0.75&quot;&gt;
-        看到我啦？ ！ v-if &gt;= 0.75
-    &lt;/h1&gt;
-    &lt;h1 v-else-if=&quot;random &gt; 0.5&quot;&gt;
-        看到我啦？ ！ v-else-if &gt; 0.5
-    &lt;/h1&gt;
-    &lt;h1 v-else-if=&quot;random &gt; 0.25&quot;&gt;
-        看到我啦？ ！ v-else-if &gt; 0.25
-    &lt;/h1&gt;
-    &lt;h1 v-else&gt;
-        看到我啦？ ！ v-else
-    &lt;/h1&gt;
-&lt;/div&gt;
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-    let app = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            random: 1
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<h3 id="计算属性和侦听器">计算属性和侦听器</h3>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;ul&gt;
-        &lt;li&gt;西游记： 价格{{xyjPrice}}， 数量：
-            &lt;input type=&quot;number&quot; v-model=&quot;xyjNum&quot;&gt;
-        &lt;/li&gt;
-        &lt;li&gt;水浒传： 价格{{shzPrice}}， 数量：
-            &lt;input type=&quot;number&quot; v-model=&quot;shzNum&quot;&gt;
-        &lt;/li&gt;
-        &lt;li&gt;总价： {{totalPrice}}&lt;/li&gt;
-        {{msg}}
-    &lt;/ul&gt;
-&lt;/div&gt;
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-    let app = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            xyjPrice: 56.73,
-            shzPrice: 47.98,
-            xyjNum: 1,
-            shzNum: 1,
-            msg: &quot;&quot;
-        },
-        // 计算属性
-        computed: {
-            totalPrice() {
-                return this.xyjPrice * this.xyjNum + this.shzPrice * this.shzNum;
-            }
-        },
-        // 监听器
-        watch: {
-            xyjNum: function(newVal, oldVal) {
-                if(newVal &gt;= 3) {
-                    this.msg = &quot;库存超出限制&quot;;
-                    this.xyjNum = 3;
-                } else {
-                    this.msg = &quot;&quot;;
-                }
-            }
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<h3 id="过滤器">过滤器</h3>
-<p>过滤器不改变真正的<code>data</code>， 而只是改变渲染的结果， 并返回过滤后的版本。 在很多不同的情况下， 过滤器都是有用的， 比如尽可能保持 API 响应的干净， 并在前端处理数据的格式。</p>
-<ol>
-<li>局部过滤</li>
-</ol>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;table&gt;
-        &lt;tr v-for=&quot;user in userList&quot;&gt;
-            &lt;td&gt;{{user.id}}&lt;/td&gt;
-            &lt;td&gt;{{user.name}}&lt;/td&gt;
-            &lt;!-- 使用代码块实现， 有代码侵入 --&gt;
-            &lt;!-- &lt;td&gt;{{user.gender===1? &quot;男&quot;:&quot;女&quot;}}&lt;/td&gt; --&gt;
-            &lt;!-- 使用过滤器 --&gt;
-            &lt;td&gt;{{user.gender | genderFilter}}&lt;/td&gt;
-        &lt;/tr&gt;
-    &lt;/table&gt;
-&lt;/div&gt;
-
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-&lt;script&gt;
-    let app = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            userList: [
-                { id: 1, name: 'jacky', gender: 1 },
-                { id: 2, name: 'peter', gender: 0 }
-            ]
-        },
-        // 过滤器
-        filters: {
-            genderFilter(val) {
-                if(val == 1) {
-                    return &quot;男&quot;;
-                } else {
-                    return &quot;女&quot;;
-                }
-            }
-        } 
-    });
-&lt;/script&gt;
-</code></pre>
-<ol start="2">
-<li>全局过滤器</li>
-</ol>
-<pre><code class="language-html">&lt;script&gt;
-    Vue.filter(&quot;gFilter&quot;, function (val) {
-        if (val == 1) {
-            return &quot;男!&quot;;
-        } else {
-            return &quot;女!&quot;;
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<h3 id="vue组件化">Vue组件化</h3>
-<p>在大型应用开发的时候， 页面可以划分成很多部分。 往往不同的页面， 也会有相同的部分。例如可能会有相同的头部导航。但是如果每个页面都独自开发， 这无疑增加了我们开发的成本。 所以我们会把页面的不同部分拆分成独立的组件， 然后在不同页面就可以共享这些组件， 避免重复开发。在 vue 里， 所有的 vue 实例都是组件</p>
-<ul>
-<li>组件其实也是一个 Vue 实例， 因此它在定义时也会接收： data、 methods、 生命周期函数等</li>
-<li>不同的是组件不会与页面的元素绑定， 否则就无法复用了， 因此没有el 属性。</li>
-<li>但是组件渲染需要 html 模板， 所以增加了 template 属性， 值就是 HTML 模板</li>
-<li>全局组件定义完毕， 任何 vue 实例都可以直接在 HTML 中通过组件名称来使用组件了</li>
-<li>data 必须是一个函数， 不再是一个对象。否则返回的都是一个对象</li>
-</ul>
-<pre><code class="language-html">&lt;div id=&quot;app&quot;&gt;
-    &lt;button @click=&quot;count++&quot;&gt;我被点击了{{count}}次&lt;/button&gt;
-    &lt;!-- 使用全局组件，都是独立的副本！ --&gt;
-    &lt;counter&gt;&lt;/counter&gt;
-    &lt;counter&gt;&lt;/counter&gt;
-    &lt;counter&gt;&lt;/counter&gt;
-    &lt;!-- 使用局部组件 --&gt;
-    &lt;button-counter&gt;&lt;/button-counter&gt;
-    &lt;button-counter&gt;&lt;/button-counter&gt;
-    &lt;button-counter&gt;&lt;/button-counter&gt;
-&lt;/div&gt;
-&lt;script src=&quot;../node_modules/vue/dist/vue.js&quot;&gt;&lt;/script&gt;
-
-&lt;script&gt;
-    // 全局组件
-    Vue.component(&quot;counter&quot;, {
-        template: `&lt;button @click=&quot;count++&quot;&gt;我被点击了{{count}}次&lt;/button&gt;`,
-        // 返回的是一个新的对象，所以以此为模板创建的都是独立的副本
-        data() {
-            return {
-                count: 1
-            }
-        }
-    });
-
-    // 局部定义一个组件
-    const buttonCounter = {
-        template: `&lt;button @click=&quot;count++&quot;&gt;我被点击了{{count}}次&lt;/button&gt;`,
-        // 返回的是一个新的对象，所以以此为模板创建的都是独立的副本
-        data() {
-            return {
-                count: 1
-            }
-        }
-    };
-
-    let vm = new Vue({
-        el: &quot;#app&quot;,
-        data: {
-            count: 1
-        },
-        // 声明局部一个组件
-        components: {
-            &quot;button-counter&quot;: buttonCounter
-        }
-    })
-&lt;/script&gt;
-</code></pre>
-<h3 id="生命周期和钩子函数">生命周期和钩子函数</h3>
-<p>每个 Vue 实例在被创建时都要经过一系列的初始化过程 ： 创建实例， 装载模板， 渲染模板等等。 Vue 为生命周期中的每个状态都设置了钩子函数（监听函数） 。 每当 Vue 实例处于不同的生命周期时， 对应的函数就会被触发调用。<br>
-<img src="https://dxone1.github.io//post-images/1636020701181.png" alt="" loading="lazy"></p>
-<h3 id="vue的模块化开发">Vue的模块化开发</h3>
-<p>1、 npm install webpack -g<br>
-全局安装 webpack<br>
-2、 npm install -g @vue/cli-init<br>
-全局安装 vue 脚手架<br>
-3、 初始化 vue 项目；<br>
-vue init webpack appname： vue 脚手架使用 webpack 模板初始化一个 appname 项目<br>
-4、 启动 vue 项目；<br>
-项目的 package.json 中有 scripts， 代表我们能运行的命令<br>
-- npm start = npm run dev： 启动项目<br>
-- npm run build： 将项目打包</p>
-<h3 id="vue整合elementui">Vue整合ElementUI</h3>
-<p>1、 安装 element-ui: npm i element-ui<br>
-2、 在 main.js 中引入 element-ui 就可以全局使用了。</p>
-<pre><code class="language-js">import ElementUI from 'element-ui'
-import 'element-ui/lib/theme-chalk/index.css'
-Vue.use(ElementUI)
-</code></pre>
-<p>3、 将 App.vue 改为 element-ui 中的后台布局<br>
-4、 添加测试路由、 组件， 测试跳转逻辑<br>
-(1) 、 参照文档 el-menu 添加 router 属性<br>
-(2) 、 参照文档 el-menu-item 指定 index 需要跳转的地址</p>
 ]]></content>
     </entry>
 </feed>

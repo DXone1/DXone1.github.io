@@ -1,0 +1,517 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day10：商品商城 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1636978915058">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day10：商品商城 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="ES作用：商城全文检索、日志检索...
+商品上架
+ES使用内存，代价很高，所以约定只存储必须的信息，其他的再从mysql中查找。保存以下信息：sku信息、SPU商品规格、品牌、分类...
+
+防冗余ES设计：
+sku索引{
+    skuId..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1636978915058" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day10：商品商城
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-15
+              </span>
+              <span>
+                9 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>ES作用：商城全文检索、日志检索...</p>
+<h2 id="商品上架">商品上架</h2>
+<p>ES使用内存，代价很高，所以约定只存储必须的信息，其他的再从mysql中查找。保存以下信息：sku信息、SPU商品规格、品牌、分类...<br>
+<img src="https://dxone1.github.io//post-images/1636945703755.png" alt="" loading="lazy"><br>
+防冗余ES设计：</p>
+<pre><code class="language-json">sku索引{
+    skuId: 1,
+    spuId: 11,
+    xxxx
+}
+
+attr索引{
+    spuId: 11,
+    attrs: [
+        {尺寸: 5寸},
+        {CPU: 高通骁龙845},
+        {分辨率: 全高清}        
+    ]
+}
+</code></pre>
+<p>观察京东商城的设计：当搜索某个选项后可以自动计算出符合该搜索项的所有属性组合。综合考量使用如下的ES索引设计</p>
+<pre><code class="language-json">POST product
+{
+  &quot;mappings&quot;: {
+    &quot;properties&quot;: {
+      &quot;skuId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;spuId&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;
+      },
+      &quot;skuTitle&quot;: {
+        &quot;type&quot;: &quot;text&quot;,
+        &quot;analyzer&quot;: &quot;ik_smart&quot;
+      },
+      &quot;skuPrice&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;
+      },
+      &quot;skuImg&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;saleCount&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;hasStock&quot;: {
+        &quot;type&quot;: &quot;boolean&quot;
+      },
+      &quot;hotScore&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;brandId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;catalogId&quot;: {
+        &quot;type&quot;: &quot;long&quot;
+      },
+      &quot;brandName&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;brandImg&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;catalogName&quot;: {
+        &quot;type&quot;: &quot;keyword&quot;,
+        &quot;index&quot;: false,
+        &quot;doc_values&quot;: false
+      },
+      &quot;attrs&quot;: {
+        &quot;type&quot;: &quot;nested&quot;,
+        &quot;properties&quot;: {
+          &quot;attrId&quot;: {
+            &quot;type&quot;: &quot;long&quot;
+          },
+          &quot;attrName&quot;: {
+            &quot;type&quot;: &quot;keyword&quot;,
+            &quot;index&quot;: false,
+            &quot;doc_values&quot;: false
+          },
+          &quot;attrValue&quot;: {
+            &quot;type&quot;: &quot;keyword&quot;
+          }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<ol>
+<li>创建一个和这个数据格式匹配的TO（领域模型）,完成product和search服务之间的数据传输</li>
+<li>基本属性和品牌分类信息的sql查找和封装</li>
+<li>远程调用库存服务，查看还有没有库存</li>
+</ol>
+<pre><code class="language-java">@Override
+public List&lt;SkuHasStockVo&gt; getSkuHasStock(List&lt;Long&gt; skuIds) {
+    List&lt;SkuHasStockVo&gt; collect = skuIds.stream().map(skuId -&gt; {
+        SkuHasStockVo skuHasStockVo = new SkuHasStockVo();
+        Long count = this.baseMapper.getSkuStock(skuId);
+        skuHasStockVo.setHasStock(count &gt; 0);
+        return skuHasStockVo;
+    }).collect(Collectors.toList());
+    return collect;
+}
+</code></pre>
+<ol start="4">
+<li>远程调用search服务，实现index给ES封装好的SkuEsModel</li>
+</ol>
+<pre><code class="language-java">/**
+    * 保存上架商品数据到ES中
+    * @param skuEsModels
+    */
+@Override
+public boolean productStatusUp(List&lt;SkuEsModel&gt; skuEsModels) throws IOException {
+    // 1. 给ES建立索引，并建立映射关系
+    // 2. 给es保存数据
+    BulkRequest bulkRequest = new BulkRequest();
+    for (SkuEsModel model : skuEsModels) {
+        IndexRequest indexRequest = new IndexRequest(EsConstant.PRODUCT_INDEX);
+        // 设定indexRequest的id,内容
+        indexRequest.id(model.getSkuId().toString());
+        String s = JSON.toJSONString(model);
+        indexRequest.source(s, XContentType.JSON);
+        // 放入bulk中
+        bulkRequest.add(indexRequest);
+    }
+    BulkResponse bulk = client.bulk(bulkRequest, MallElasticSearchConfig.COMMON_OPTIONS);
+    // TODO 如果批量index操作有错误则记录log
+    boolean b = bulk.hasFailures();
+    List&lt;String&gt; collect = Arrays.stream(bulk.getItems()).filter(item -&gt;
+            item.isFailed()
+    ).map(item -&gt; {
+        return item.getId();
+    }).collect(Collectors.toList());
+    log.error(&quot;商品上架出错,{}&quot;, collect);
+
+    return b;
+}
+</code></pre>
+<pre><code class="language-java">/**
+* feign调用流程：
+* 1. 构造请求数据，将对象转为json
+* 2. 发送请求进行执行，执行成功会解码响应数据
+* 3. 执行请求会有重试机制
+*/
+</code></pre>
+<p>总体的javaService如下，流程还是有复杂度的</p>
+<pre><code class="language-java">/**
+    * 商品上架功能
+    * @param spuId
+    */
+@Override
+public void up(Long spuId) {
+    //1. 组装需要的数据
+    // 查询当前SpuId对应的SKU信息
+    List&lt;SkuInfoEntity&gt; skus = skuInfoService.getSkusBySpuId(spuId);
+    List&lt;Long&gt; skuIdList = skus.stream().map(SkuInfoEntity::getSkuId).collect(Collectors.toList());
+
+    // TODO 查询当前Sku的所有可以被检索的规格属性 attrs
+    List&lt;ProductAttrValueEntity&gt; baseAttrs = productAttrValueService.baseAttrListForSpu(spuId);
+    List&lt;Long&gt; attrIds = baseAttrs.stream().map(attr -&gt; {
+        return attr.getAttrId();
+    }).collect(Collectors.toList());
+    // 查询可检索属性的id
+    List&lt;Long&gt; searchAttrIds = attrService.selectSearchAttrs(attrIds);
+    Set&lt;Long&gt; idSet = new HashSet&lt;&gt;(searchAttrIds);
+    // 筛选可检索的属性并封装
+    // 先过滤掉不可检索的属性，再封装成SkuEsModel.Attrs的格式，方便后续保存
+    List&lt;SkuEsModel.Attrs&gt; attrsList = baseAttrs.stream().filter(item -&gt; {
+        return idSet.contains(item.getAttrId());
+    }).map(item -&gt; {
+        SkuEsModel.Attrs attrs1 = new SkuEsModel.Attrs();
+        BeanUtils.copyProperties(item, attrs1);
+        return attrs1;
+    }).collect(Collectors.toList());
+
+    // hasStock 发送远程查看有无库存
+    Map&lt;Long, Boolean&gt; stockMap = null;
+    try {
+        R skuHasStock = wareFeignService.getSkuHasStock(skuIdList);
+        TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt; typeReference = new TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt;() {};
+        stockMap = skuHasStock.getData(typeReference).stream().collect(Collectors.toMap(SkuHasStockVo::getSkuId, item -&gt; item.getHasStock()));
+    } catch (Exception e) {
+        log.error(&quot;库存服务异常,原因{}&quot;,e);
+    }
+
+    // 封装SkuEsModel
+    Map&lt;Long, Boolean&gt; finalStockMap = stockMap;
+    List&lt;SkuEsModel&gt; upProducts = skus.stream().map(sku -&gt; {
+        SkuEsModel esModel = new SkuEsModel();
+        BeanUtils.copyProperties(sku, esModel);
+        esModel.setSkuPrice(sku.getPrice());
+        esModel.setSkuImg(sku.getSkuDefaultImg());
+
+        // 设置库存，没有查询成功就认为有库存返回
+        if(finalStockMap == null) {
+            esModel.setHasStock(true);
+        } else {
+            esModel.setHasStock(finalStockMap.get(sku.getSkuId()));
+        }
+
+        // hotStock 热度评分默认置0
+        esModel.setHotScore(0L);
+
+        // 品牌信息
+        BrandEntity brandEntity = brandService.getById(esModel.getBrandId());
+        esModel.setBrandName(brandEntity.getName());
+        esModel.setBrandImg(brandEntity.getLogo());
+        // 分类信息
+        CategoryEntity categoryEntity = categoryService.getById(esModel.getCatalogId());
+        esModel.setCatalogName(categoryEntity.getName());
+        // 设置SPU的可检索规格属性
+        esModel.setAttrs(attrsList);
+        return esModel;
+    }).collect(Collectors.toList());
+
+    // 发送给ES：提出search的远程调用
+    R r = searchFeignService.productStatusUp(upProducts);
+    if(r.getCode() == 0) {
+        // 远程调用成功
+        // 需要修改SPU的 publish_status 发布状态为已上架
+        this.baseMapper.updateSpuStatus(spuId, ProductConstant.StatusEnum.SPU_UP.getCode());
+
+    } else {
+        // 远程调用失败
+        // TODO 重复调用，接口幂等性问题，重试机制
+
+    }
+}
+</code></pre>
+<p>结果：<br>
+<img src="https://dxone1.github.io//post-images/1636969745665.png" alt="" loading="lazy"></p>
+<h2 id="搭建商城首页">搭建商城首页</h2>
+<h3 id="使用thymeleaf渲染页面">使用thymeleaf渲染页面</h3>
+<p>架构如下：<br>
+<img src="https://dxone1.github.io//post-images/1636970274115.png" alt="" loading="lazy"></p>
+<ol>
+<li>导入thymeleaf的依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-thymeleaf&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>将页面资源放入对应的微服务的项目文件夹：</p>
+<pre><code class="language-txt">静态资源 -&gt; static
+动态页面 -&gt; templates
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1636975188211.png" alt="" loading="lazy"></figure>
+<h3 id="首页渲染分类功能">首页渲染分类功能</h3>
+<ol>
+<li>先设定欢迎页的路径映射，使用Thymeleaf解析</li>
+<li>编写返回渲染分类信息的数据</li>
+</ol>
+<pre><code class="language-java">@GetMapping({&quot;/&quot;, &quot;/index.html&quot;})
+public String indexPage(Model model) {
+    // TODO 查出所有的一级分类
+    List&lt;CategoryEntity&gt; categoryEntities = categoryService.getLevel1Categorys();
+    // 使用model传数据
+    model.addAttribute(&quot;categorys&quot;, categoryEntities);
+    return &quot;index&quot;;
+}
+</code></pre>
+<ol start="3">
+<li>页面取出相关数据并渲染<br>
+一级菜单</li>
+</ol>
+<pre><code class="language-html">&lt;ul&gt;
+    &lt;li th:each=&quot;category : ${categorys}&quot;&gt;
+        &lt;a href=&quot;#&quot; class=&quot;header_main_left_a&quot; th:attr=&quot;ctg-data=${category.catId}&quot;&gt;&lt;b th:text=&quot;${category.name}&quot;&gt;家用电器111&lt;/b&gt;&lt;/a&gt;
+    &lt;/li&gt;
+&lt;/ul&gt;
+</code></pre>
+<p>二三级菜单<br>
+根据需要返回的数据，构建一个vo</p>
+<pre><code class="language-java">@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class Catelog2Vo {
+    private String catalog1Id; //一级父分类的id
+    private List&lt;Object&gt; catalog3List; // 三级子分类
+    private String id;
+    private String name;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Catelog3Vo {
+        private String catalog2Id; //二级父分类的id
+        private String id;
+        private String name;
+    }
+}
+</code></pre>
+<p>给出的js文件会发出请求，编写对应的控制器返回json数据</p>
+<pre><code class="language-java">/**
+    * 返回封装成json格式的二三级分类
+    * @return
+    */
+@Override
+public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
+    // 查出所有一级分类
+    List&lt;CategoryEntity&gt; level1Categorys = this.getLevel1Categorys();
+    // 封装数据
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; map = level1Categorys.stream().collect(Collectors.toMap(k -&gt; k.getCatId().toString(),
+            v -&gt; {
+                // 查询所有一级分类下的二级分类
+                List&lt;CategoryEntity&gt; categoryEntities = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, v.getCatId()));
+                List&lt;Catelog2Vo&gt; catelog2Vos = null;
+                if (categoryEntities != null) {
+                    catelog2Vos = categoryEntities.stream().map(l2 -&gt; {
+                        Catelog2Vo catelog2Vo = new Catelog2Vo(v.getCatId().toString(), null, l2.getCatId().toString(), l2.getName());
+                        List&lt;CategoryEntity&gt; level3Catelog = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, l2.getCatId()));
+                        if(level3Catelog != null) {
+                            List&lt;Catelog2Vo.Catelog3Vo&gt; collect = level3Catelog.stream().map(l3 -&gt; {
+                                Catelog2Vo.Catelog3Vo catelog3Vo = new Catelog2Vo.Catelog3Vo(l2.getCatId().toString(), l3.getCatId().toString(), l3.getName());
+                                return catelog3Vo;
+                            }).collect(Collectors.toList());
+                            catelog2Vo.setCatalog3List(collect);
+                        }
+                        return catelog2Vo;
+                    }).collect(Collectors.toList());
+                }
+                return catelog2Vos;
+            }));
+    return map;
+}
+</code></pre>
+<p>此时分类的渲染是实时从数据库更新的<br>
+<img src="https://dxone1.github.io//post-images/1636978683545.png" alt="" loading="lazy"></p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E5%95%86%E5%93%81%E4%B8%8A%E6%9E%B6">商品上架</a></li>
+<li><a href="#%E6%90%AD%E5%BB%BA%E5%95%86%E5%9F%8E%E9%A6%96%E9%A1%B5">搭建商城首页</a>
+<ul>
+<li><a href="#%E4%BD%BF%E7%94%A8thymeleaf%E6%B8%B2%E6%9F%93%E9%A1%B5%E9%9D%A2">使用thymeleaf渲染页面</a></li>
+<li><a href="#%E9%A6%96%E9%A1%B5%E6%B8%B2%E6%9F%93%E5%88%86%E7%B1%BB%E5%8A%9F%E8%83%BD">首页渲染分类功能</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day9elasticsearch-ru-men-he-zheng-he/">
+              <h3 class="post-title">
+                商城项目 day9：elasticSearch入门和整合
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
