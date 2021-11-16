@@ -1,0 +1,300 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day11：反向代理和压力测试 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1637052590264">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day11：反向代理和压力测试 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="Nginx搭建域名访问环境
+
+
+改hosts文件
+
+# mall
+192.168.180.3 mall.com
+
+
+让nginx执行反向代理
+
+
+nginx搭配网关实现负载均衡
+
+
+在网关添加基于域名的路由规则
+注意在Nginx代理给网关的..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1637052590264" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day11：反向代理和压力测试
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-16
+              </span>
+              <span>
+                4 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h2 id="nginx搭建域名访问环境">Nginx搭建域名访问环境</h2>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637032446105.png" alt="" loading="lazy"></figure>
+<ol>
+<li>改hosts文件</li>
+</ol>
+<pre><code class="language-txt"># mall
+192.168.180.3 mall.com
+</code></pre>
+<ol start="2">
+<li>让nginx执行反向代理<br>
+<img src="https://dxone1.github.io//post-images/1637033085703.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637033729229.png" alt="" loading="lazy"></li>
+<li>nginx搭配网关实现负载均衡<br>
+<img src="https://dxone1.github.io//post-images/1637034269351.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637034276264.png" alt="" loading="lazy"><br>
+在网关添加基于域名的路由规则<br>
+注意在Nginx代理给网关的时候会丢掉host信息，必须配置！<br>
+<img src="https://dxone1.github.io//post-images/1637034850812.png" alt="" loading="lazy"></li>
+</ol>
+<pre><code class="language-yaml">- id: mall_host_route
+    uri: lb://mall-product
+    # 使用Host域名方式进行路由：任意mall.com旗下的全部路由给mall-product
+    predicates:
+    - Host=**.mall.com
+</code></pre>
+<p>效果<br>
+<img src="https://dxone1.github.io//post-images/1637034920577.png" alt="" loading="lazy"></p>
+<h2 id="压力测试">压力测试</h2>
+<p>使用Apache JMeter压测工具进行<br>
+访问mall.com的地址，观察一个聚合报告<br>
+<img src="https://dxone1.github.io//post-images/1637036493024.png" alt="" loading="lazy"><br>
+性能偏低原因在于：CPU同时在运行一个python仿真程序，且限制了每个服务的最大堆内存</p>
+<h2 id="性能调优">性能调优</h2>
+<p>考虑一个已有的场景： 请求 -&gt; nginx -&gt; gateway -&gt; mall-product（渲染首页）</p>
+<ol>
+<li>Nginx测试<br>
+使用Jmeter压测，通过docker stats命令实时监控<br>
+<img src="https://dxone1.github.io//post-images/1637046083726.png" alt="" loading="lazy"><br>
+可以看到Nginx占用CPU很高，但是吞吐量很高<br>
+<img src="https://dxone1.github.io//post-images/1637046261797.png" alt="" loading="lazy"></li>
+<li>网关测试<br>
+<img src="https://dxone1.github.io//post-images/1637046508893.png" alt="" loading="lazy"><br>
+吞吐量也很高<br>
+J VisualVM测试Eden区有点小，GC次数多<br>
+<img src="https://dxone1.github.io//post-images/1637046554346.png" alt="" loading="lazy"></li>
+<li>Gateway + 简单页面<br>
+在增加中间件后链路吞吐量大幅下降！</li>
+<li>访问mall.com 全链路<br>
+<img src="https://dxone1.github.io//post-images/1637047278718.png" alt="" loading="lazy"><br>
+压测发现渲染分类菜单拖慢了整个系统的速度，一级菜单的渲染主要消耗在查数据库和thymleaf的页面渲染上，三级分类则主要是查数据库耗时。此外，在页面渲染获取静态页面时耗时也是很可怕的。</li>
+</ol>
+<h3 id="简单优化数据库">简单优化数据库</h3>
+<p>开启缓存，日志级别调低至error，优化数据库<br>
+controller中的indexPage方法只查询一级分类，只涉及parent_cid字段的查询操作，可以考虑建立索引，发现吞吐量大幅提高<br>
+<img src="https://dxone1.github.io//post-images/1637049151641.png" alt="" loading="lazy"></p>
+<h3 id="nginx动静分离">Nginx动静分离</h3>
+<p>指定 /static/下的所有请求都由Nginx处理<br>
+<img src="https://dxone1.github.io//post-images/1637050290116.png" alt="" loading="lazy"><br>
+这样所有的静态资源直接由Nginx返回，不需要再转发到tomcat处理了</p>
+<h3 id="jvm调优">JVM调优</h3>
+<p>使用如下参数进行调优<br>
+<img src="https://dxone1.github.io//post-images/1637051516591.png" alt="" loading="lazy"></p>
+<h3 id="优化三级分类业务">优化三级分类业务</h3>
+<p>将多次查表操作优化为单次查表再筛选</p>
+<pre><code class="language-java">@Override
+public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
+    /**
+        * 将多次查数据库优化为一次
+        */
+    List&lt;CategoryEntity&gt; selectList = baseMapper.selectList(null);
+    // 查出所有一级分类
+    List&lt;CategoryEntity&gt; level1Categorys = getParent_cid(selectList, 0L);
+    // 封装数据
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; map = level1Categorys.stream().collect(Collectors.toMap(k -&gt; k.getCatId().toString(),
+            v -&gt; {
+                // 查询所有一级分类下的二级分类
+                List&lt;CategoryEntity&gt; categoryEntities = getParent_cid(selectList, v.getCatId());
+                List&lt;Catelog2Vo&gt; catelog2Vos = null;
+                if (categoryEntities != null) {
+                    catelog2Vos = categoryEntities.stream().map(l2 -&gt; {
+                        Catelog2Vo catelog2Vo = new Catelog2Vo(v.getCatId().toString(), null, l2.getCatId().toString(), l2.getName());
+                        List&lt;CategoryEntity&gt; level3Catelog = getParent_cid(selectList, l2.getCatId());
+                        if (level3Catelog != null) {
+                            List&lt;Catelog2Vo.Catelog3Vo&gt; collect = level3Catelog.stream().map(l3 -&gt; {
+                                Catelog2Vo.Catelog3Vo catelog3Vo = new Catelog2Vo.Catelog3Vo(l2.getCatId().toString(), l3.getCatId().toString(), l3.getName());
+                                return catelog3Vo;
+                            }).collect(Collectors.toList());
+                            catelog2Vo.setCatalog3List(collect);
+                        }
+                        return catelog2Vo;
+                    }).collect(Collectors.toList());
+                }
+                return catelog2Vos;
+            }));
+    return map;
+}
+
+private List&lt;CategoryEntity&gt; getParent_cid(List&lt;CategoryEntity&gt; selectList, Long parent_cid) {
+    List&lt;CategoryEntity&gt; collect = selectList.stream().filter(item -&gt; item.getParentCid() == parent_cid).collect(Collectors.toList());
+    return collect;
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1637052446002.png" alt="" loading="lazy"><br>
+吞吐量大幅上涨</p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#nginx%E6%90%AD%E5%BB%BA%E5%9F%9F%E5%90%8D%E8%AE%BF%E9%97%AE%E7%8E%AF%E5%A2%83">Nginx搭建域名访问环境</a></li>
+<li><a href="#%E5%8E%8B%E5%8A%9B%E6%B5%8B%E8%AF%95">压力测试</a></li>
+<li><a href="#%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98">性能调优</a>
+<ul>
+<li><a href="#%E7%AE%80%E5%8D%95%E4%BC%98%E5%8C%96%E6%95%B0%E6%8D%AE%E5%BA%93">简单优化数据库</a></li>
+<li><a href="#nginx%E5%8A%A8%E9%9D%99%E5%88%86%E7%A6%BB">Nginx动静分离</a></li>
+<li><a href="#jvm%E8%B0%83%E4%BC%98">JVM调优</a></li>
+<li><a href="#%E4%BC%98%E5%8C%96%E4%B8%89%E7%BA%A7%E5%88%86%E7%B1%BB%E4%B8%9A%E5%8A%A1">优化三级分类业务</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day10shang-pin-shang-cheng/">
+              <h3 class="post-title">
+                商城项目 day10：商品商城
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
