@@ -1,0 +1,524 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day12：使用缓存 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1637225317451">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day12：使用缓存 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="在业务中为了提升性能表现，mysql数据库将只负责数据的持久化，而加速访问则需要将部分数据存入缓存中。
+哪些数据适合放入缓存？
+
+即时性、 数据一致性要求不高的
+访问量大且更新频率不高的数据（读多， 写少）
+
+本地缓存会出现数据一致性的问题..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1637225317451" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day12：使用缓存
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-16
+              </span>
+              <span>
+                12 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>在业务中为了提升性能表现，mysql数据库将只负责数据的持久化，而加速访问则需要将部分数据存入缓存中。<br>
+哪些数据适合放入缓存？</p>
+<ul>
+<li>即时性、 数据一致性要求不高的</li>
+<li>访问量大且更新频率不高的数据（读多， 写少）<br>
+<img src="https://dxone1.github.io//post-images/1637053007728.png" alt="" loading="lazy"><br>
+本地缓存会出现数据一致性的问题，所以需要使用分布式缓存架构。单独提出一个缓存服务器即可完成<br>
+<img src="https://dxone1.github.io//post-images/1637053641754.png" alt="" loading="lazy"></li>
+</ul>
+<h2 id="使用redis">使用Redis</h2>
+<ol>
+<li>在项目依赖中引入Redis</li>
+</ol>
+<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>在yaml中配置redis的相关信息</li>
+</ol>
+<pre><code class="language-yaml">spring: 
+    redis:
+        host: 192.168.180.3
+        port: 6379
+</code></pre>
+<p>在Redis中存储的数据往往是&lt;String, String&gt;格式，所以可以使用StringRedisTemplate自动配置。其他的使用RedisTemplate<br>
+3. 测试</p>
+<pre><code class="language-java">@Test
+public void testStringRedisTemplate() {
+    ValueOperations&lt;String, String&gt; ops = stringRedisTemplate.opsForValue();
+    // 保存
+    ops.set(&quot;hello&quot;, &quot;world&quot; + UUID.randomUUID().toString());
+    // 查询
+    String hello = ops.get(&quot;hello&quot;);
+    System.out.println(hello);
+}
+</code></pre>
+<h2 id="在商城业务中加入缓存功能">在商城业务中加入缓存功能</h2>
+<p>在分类控制器 CategoryService中添加缓存功能<br>
+将原先的业务逻辑抽取为<code>getCatalogJsonFromDb()</code>的方法，然后重写带缓存的获取分类信息的业务代码</p>
+<pre><code class="language-java">@Override
+public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
+    ValueOperations&lt;String, String&gt; ops = redisTemplate.opsForValue();
+    String catalogJSON = ops.get(&quot;catalogJSON&quot;);
+    // 缓存为空则需要查询数据库
+    if(StringUtils.isEmpty(catalogJSON)) {
+        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; catalogJsonFromDb = getCatalogJsonFromDb();
+        // 放入缓存
+        String s = JSON.toJSONString(catalogJsonFromDb);
+        ops.set(&quot;catalogJSON&quot;, s);
+        return catalogJsonFromDb;
+    }
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
+    return res;
+}
+</code></pre>
+<p><strong>堆外内存溢出</strong><br>
+SpringBoot2默认使用Lettuce作为操作客户端，使用netty进行网络通信，Lettuce的bug会导致堆外内存溢出 -Xmx100m, netty没有指定下会使用与其一致的堆外内存。<br>
+可以通过 -Dio.netty.maxDirectMemory设置，但是只能减缓出现溢出的时间，解决方案：1. 升级Lettuce客户端 2. 使用jedis</p>
+<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+    &lt;exclusions&gt;
+        &lt;exclusion&gt;
+            &lt;groupId&gt;io.lettuce&lt;/groupId&gt;
+            &lt;artifactId&gt;lettuce-core&lt;/artifactId&gt;
+        &lt;/exclusion&gt;
+    &lt;/exclusions&gt;
+&lt;/dependency&gt;
+
+&lt;dependency&gt;
+    &lt;groupId&gt;redis.clients&lt;/groupId&gt;
+    &lt;artifactId&gt;jedis&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>大幅提高了响应效率和吞吐量<br>
+<img src="https://dxone1.github.io//post-images/1637117151652.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637117212321.png" alt="" loading="lazy"></p>
+<h2 id="缓存失效问题">缓存失效问题</h2>
+<ol>
+<li>缓存穿透</li>
+</ol>
+<ul>
+<li>缓存穿透是指查询一个一定不存在的数据， 由于缓存是不命中， 将去查询数据库， 但是数<br>
+据库也无此记录， 我们没有将这次查询的 null 写入缓存， 这将导致这个不存在的数据每次<br>
+请求都要到存储层去查询， 失去了缓存的意义。</li>
+<li>在流量大时， 可能 DB 就挂掉了， 要是有人利用不存在的 key 频繁攻击我们的应用， 这就是<br>
+漏洞。</li>
+<li>解决：<br>
+缓存空结果、 并且设置短的过期时间。</li>
+</ul>
+<ol start="2">
+<li>缓存雪崩</li>
+</ol>
+<ul>
+<li>缓存雪崩是指在我们设置缓存时采用了相同的过期时间， 导致缓存在某一时刻同时失<br>
+效， 请求全部转发到 DB， DB 瞬时压力过重雪崩。</li>
+<li>解决：<br>
+原有的失效时间基础上增加一个随机值， 比如 1-5 分钟随机， 这样每一个缓存的过期时间的<br>
+重复率就会降低， 就很难引发集体失效的事件。</li>
+</ul>
+<ol start="3">
+<li>缓存击穿</li>
+</ol>
+<ul>
+<li>对于一些设置了过期时间的 key， 如果这些 key 可能会在某些时间点被超高并发地访问，<br>
+是一种非常“热点”的数据。</li>
+<li>这个时候， 需要考虑一个问题： 如果这个 key 在大量请求同时进来前正好失效， 那么所<br>
+有对这个 key 的数据查询都落到 db， 我们称为缓存击穿。</li>
+<li>解决：<br>
+加锁</li>
+</ul>
+<h2 id="加锁">加锁</h2>
+<ol>
+<li>简单的本地锁</li>
+</ol>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDb() {
+        /**
+         * 将多次查数据库优化为一次
+         */
+        synchronized (this) {
+            String catalogJSON = redisTemplate.opsForValue().get(&quot;catalogJSON&quot;);
+            if(!StringUtils.isEmpty(catalogJSON)) {
+                //缓存不为空直接返回
+                //double check的逻辑
+                Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
+                return res;
+            }
+      ......
+
+      // 将放入缓存操作也放入锁同步块中
+        String s = JSON.toJSONString(map);
+        redisTemplate.opsForValue().set(&quot;catalogJSON&quot;, s, 1, TimeUnit.DAYS);
+        return map;
+}
+</code></pre>
+<p>类似于Double check的机制，但是在分布式集群情况下则因为每个进程只能锁自己的，所以无法实现完全的加锁，这时候就需要分布式锁。然而实际上在一般规模集群也可以防止缓存击穿。<br>
+发现只有一次的查数据库操作<br>
+<img src="https://dxone1.github.io//post-images/1637126480451.png" alt="" loading="lazy"><br>
+2. 分布式锁<br>
+当有多个应用时测试，会有可能多个线程都查询了数据库，想要实现全局只有一次查询则需要添加分布式锁<br>
+<img src="https://dxone1.github.io//post-images/1637126981627.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637126984844.png" alt="" loading="lazy"><br>
+分布式锁的机制<br>
+<img src="https://dxone1.github.io//post-images/1637130836138.png" alt="" loading="lazy"><br>
+使用<code>setnx()</code>命令可以尝试原子的给redeis设置锁，如果已经存在了则无法成功上锁。执行<code>set lock 1 NX</code>即同时只有一个会加上锁。<br>
+在加锁时，必须原子地设置过期时间，否则因为线程崩溃会导致死锁。同时，解锁也需要原子地判断当前解锁的是否是当前线程设置的锁，必须匹配锁的value才可以解锁，这也需要时原子性操作，可以使用LUA脚本实现。保证了所有线程只查询一次数据库，但是吞吐量下降了不少：</p>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedisLock() {
+    // 占用分布式锁
+    String uuid = UUID.randomUUID().toString();
+    Boolean lock = redisTemplate.opsForValue().setIfAbsent(&quot;lock&quot;, uuid, 10, TimeUnit.SECONDS);
+    if (lock) {
+        // 加锁成功
+        System.out.println(&quot;分布式锁获取成功...&quot;);
+        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
+        try {
+            dataFromDb = getDataFromDb();
+        } finally {
+            /**
+                * 直接删除锁有可能
+                * 因为业务时间过长，锁自动失效，删除的是别的线程的锁！
+                * 解决方法是加入唯一标识。
+                * 然而到redis通信也仍然可能因为非原子操作而导致错误！需要使用lua脚本实现
+                */
+            String script = &quot;if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end&quot;;
+            Long lockSuccess = redisTemplate.execute(new DefaultRedisScript&lt;Long&gt;(script, Long.class), Arrays.asList(&quot;lock&quot;), uuid);
+        }
+        return dataFromDb;
+    } else {
+        // 加锁不成功...重试
+        System.out.println(&quot;获取分布式锁不成功，等待重试...&quot;);
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return getCatalogJsonFromDbWithRedisLock(); //自旋
+    }
+}
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637136159650.png" alt="" loading="lazy"></figure>
+<h2 id="使用redisson分布式框架">使用Redisson分布式框架</h2>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;!--作为分布式锁/对象框架--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.redisson&lt;/groupId&gt;
+    &lt;artifactId&gt;redisson&lt;/artifactId&gt;
+    &lt;version&gt;3.12.0&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>配置</li>
+</ol>
+<pre><code class="language-java">@Configuration
+public class MyRedissonConfig {
+    @Bean(destroyMethod=&quot;shutdown&quot;)
+    RedissonClient redisson() throws IOException {
+        Config config = new Config();
+        config.useSingleServer().setAddress(&quot;192.168.180.3:6379&quot;);
+        return Redisson.create(config);
+    }
+}
+</code></pre>
+<ol start="3">
+<li>使用<br>
+Redisson的分布式锁实现了JUC的Lock接口，可以直接按照JUC的思维编写，底层的分布式锁操作被封装为透明的。Redisson也可以实现锁的自动续期。即在业务期间也会续上锁的生存周期。<br>
+读写锁的逻辑：<br>
+读写互斥，读之间共享，写之间互斥</li>
+</ol>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedissonLock() {
+    RLock lock = redisson.getLock(&quot;CatalogJson-lock&quot;);
+    lock.lock(10, TimeUnit.SECONDS);
+    // 加锁成功
+    System.out.println(&quot;分布式锁获取成功...&quot;);
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
+    try {
+        dataFromDb = getDataFromDb();
+    } finally {
+        lock.unlock();
+    }
+    return dataFromDb;
+}
+</code></pre>
+<ol start="4">
+<li>缓存一致性问题</li>
+</ol>
+<ul>
+<li>双写：每次更新数据库都修改缓存</li>
+<li>失效：每次更新只删除缓存，等查询未命中再添加<br>
+可以使用Canal解决缓存一致性问题，采用订阅机制，类似于观察者模式的推送更新。本项目使用分布式读写锁解决<br>
+<img src="https://dxone1.github.io//post-images/1637156753301.png" alt="" loading="lazy"></li>
+</ul>
+<h2 id="统一缓存技术spring-cache">统一缓存技术：Spring Cache</h2>
+<p>Spring 从 3.1 开始定义了 org.springframework.cache.Cache 和org.springframework.cache.CacheManager 接口来统一不同的缓存技术；并支持使用 JCache（JSR-107） 注解简化我们开发<br>
+Cache 接口为缓存的组件规范定义， 包含缓存的各种操作集合；Cache 接 口 下 Spring 提 供 了 各 种 xxxCache 的 实 现 ； 如 RedisCache ， EhCacheCache , ConcurrentMapCache 等<br>
+<img src="https://dxone1.github.io//post-images/1637157410269.png" alt="" loading="lazy"></p>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-cache&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>写配置<br>
+会自动配置RedisCacheConfiguration，也会自动配置缓存管理器RedisCacheManager<br>
+需要配置Redis的缓存策略</li>
+</ol>
+<pre><code class="language-txt">spring.cache.type=redis
+</code></pre>
+<ol start="3">
+<li>开启缓存功能 @EnableCaching</li>
+<li>使用注解完成缓存操作</li>
+</ol>
+<pre><code class="language-java">//需要指定放到哪个缓存分区中
+@Cacheable({&quot;category&quot;}) //代表当前方法的结果需要缓存，如果缓存中有则不调用，没有则调用方法并添加到缓存中
+@Override
+public List&lt;CategoryEntity&gt; getLevel1Categorys() {
+    long l = System.currentTimeMillis();
+    List&lt;CategoryEntity&gt; categoryEntities = this.baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, 0));
+    System.out.println(&quot;消耗时间: &quot; + (System.currentTimeMillis() - l));
+    return categoryEntities;
+}
+</code></pre>
+<p>配置文件中设置存活时间，使用注解的key属性定义key。将缓存数据保存为json格式可以使用自定义缓存管理器的方式。</p>
+<h3 id="自定义rediscacheconfiguration">自定义redisCacheConfiguration</h3>
+<p>可以在这里定义序列化配置</p>
+<pre><code class="language-java">@EnableCaching
+@Configuration
+public class MyCacheConfig {
+   @Bean
+    RedisCacheConfiguration redisCacheConfiguration(CacheProperties cacheProperties) {
+        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig();
+        config = config.serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()));
+        config = config.serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+        // 将配置文件中的配置配置上
+        CacheProperties.Redis redisProperties = cacheProperties.getRedis();
+        if (redisProperties.getTimeToLive() != null) {
+            config = config.entryTtl(redisProperties.getTimeToLive());
+        }
+        if (redisProperties.getKeyPrefix() != null) {
+            config = config.prefixKeysWith(redisProperties.getKeyPrefix());
+        }
+        if (!redisProperties.isCacheNullValues()) {
+            config = config.disableCachingNullValues();
+        }
+        if (!redisProperties.isUseKeyPrefix()) {
+            config = config.disableKeyPrefix();
+        }
+        return config;
+    }
+}
+</code></pre>
+<p>增加一些配置：</p>
+<pre><code class="language-txt">spring.cache.type=redis
+spring.cache.redis.time-to-live=3600000
+spring.cache.redis.key-prefix=CACHE_
+spring.cache.redis.use-key-prefix=true
+# 缓存空值，防止缓存穿透
+spring.cache.redis.cache-null-values=true
+</code></pre>
+<h3 id="失效模式-cacheevict">失效模式 @CacheEvict</h3>
+<p>一旦更新菜单就清空缓存</p>
+<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;)
+@Transactional
+@Override
+public void updateCascade(CategoryEntity category) {
+    this.updateById(category);
+    categoryBrandRelationService.updateCategory(category.getCatId(), category.getName());
+}
+</code></pre>
+<p>@Caching可以指定多个缓存操作，这样就可以一次清楚多个缓存</p>
+<pre><code class="language-java">@Caching(evict = {
+        @CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;),
+        @CacheEvict(value = &quot;category&quot;, key = &quot;'getCatalogJson'&quot;)
+})
+</code></pre>
+<p>或者按照分区全部删除</p>
+<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, allEntries = true)
+</code></pre>
+<p>@CachePut：双写模式的接口，我们使用失效模式 @CacheEvict</p>
+<h3 id="原理">原理</h3>
+<ol>
+<li>穿透：可以设置存储空数据</li>
+<li>雪崩：可以设置过期时间</li>
+<li>击穿：加锁<br>
+SpringCache的会创建RedisCacheManager -&gt; RedisCache，默认是不加锁的。想解决击穿问题使用@Cacheable(sync = true)即可加本地锁。<br>
+@Cacheable是读方法<br>
+@CacheEvict是更新方法</li>
+</ol>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E4%BD%BF%E7%94%A8redis">使用Redis</a></li>
+<li><a href="#%E5%9C%A8%E5%95%86%E5%9F%8E%E4%B8%9A%E5%8A%A1%E4%B8%AD%E5%8A%A0%E5%85%A5%E7%BC%93%E5%AD%98%E5%8A%9F%E8%83%BD">在商城业务中加入缓存功能</a></li>
+<li><a href="#%E7%BC%93%E5%AD%98%E5%A4%B1%E6%95%88%E9%97%AE%E9%A2%98">缓存失效问题</a></li>
+<li><a href="#%E5%8A%A0%E9%94%81">加锁</a></li>
+<li><a href="#%E4%BD%BF%E7%94%A8redisson%E5%88%86%E5%B8%83%E5%BC%8F%E6%A1%86%E6%9E%B6">使用Redisson分布式框架</a></li>
+<li><a href="#%E7%BB%9F%E4%B8%80%E7%BC%93%E5%AD%98%E6%8A%80%E6%9C%AFspring-cache">统一缓存技术：Spring Cache</a>
+<ul>
+<li><a href="#%E8%87%AA%E5%AE%9A%E4%B9%89rediscacheconfiguration">自定义redisCacheConfiguration</a></li>
+<li><a href="#%E5%A4%B1%E6%95%88%E6%A8%A1%E5%BC%8F-cacheevict">失效模式 @CacheEvict</a></li>
+<li><a href="#%E5%8E%9F%E7%90%86">原理</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day11/">
+              <h3 class="post-title">
+                商城项目 day11：反向代理和压力测试
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>

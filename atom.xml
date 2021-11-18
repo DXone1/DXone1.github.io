@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-16T08:50:19.932Z</updated>
+    <updated>2021-11-18T08:48:44.258Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,350 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day12：使用缓存]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day12shi-yong-huan-cun/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day12shi-yong-huan-cun/">
+        </link>
+        <updated>2021-11-16T08:51:04.000Z</updated>
+        <content type="html"><![CDATA[<p>在业务中为了提升性能表现，mysql数据库将只负责数据的持久化，而加速访问则需要将部分数据存入缓存中。<br>
+哪些数据适合放入缓存？</p>
+<ul>
+<li>即时性、 数据一致性要求不高的</li>
+<li>访问量大且更新频率不高的数据（读多， 写少）<br>
+<img src="https://dxone1.github.io//post-images/1637053007728.png" alt="" loading="lazy"><br>
+本地缓存会出现数据一致性的问题，所以需要使用分布式缓存架构。单独提出一个缓存服务器即可完成<br>
+<img src="https://dxone1.github.io//post-images/1637053641754.png" alt="" loading="lazy"></li>
+</ul>
+<h2 id="使用redis">使用Redis</h2>
+<ol>
+<li>在项目依赖中引入Redis</li>
+</ol>
+<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>在yaml中配置redis的相关信息</li>
+</ol>
+<pre><code class="language-yaml">spring: 
+    redis:
+        host: 192.168.180.3
+        port: 6379
+</code></pre>
+<p>在Redis中存储的数据往往是&lt;String, String&gt;格式，所以可以使用StringRedisTemplate自动配置。其他的使用RedisTemplate<br>
+3. 测试</p>
+<pre><code class="language-java">@Test
+public void testStringRedisTemplate() {
+    ValueOperations&lt;String, String&gt; ops = stringRedisTemplate.opsForValue();
+    // 保存
+    ops.set(&quot;hello&quot;, &quot;world&quot; + UUID.randomUUID().toString());
+    // 查询
+    String hello = ops.get(&quot;hello&quot;);
+    System.out.println(hello);
+}
+</code></pre>
+<h2 id="在商城业务中加入缓存功能">在商城业务中加入缓存功能</h2>
+<p>在分类控制器 CategoryService中添加缓存功能<br>
+将原先的业务逻辑抽取为<code>getCatalogJsonFromDb()</code>的方法，然后重写带缓存的获取分类信息的业务代码</p>
+<pre><code class="language-java">@Override
+public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
+    ValueOperations&lt;String, String&gt; ops = redisTemplate.opsForValue();
+    String catalogJSON = ops.get(&quot;catalogJSON&quot;);
+    // 缓存为空则需要查询数据库
+    if(StringUtils.isEmpty(catalogJSON)) {
+        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; catalogJsonFromDb = getCatalogJsonFromDb();
+        // 放入缓存
+        String s = JSON.toJSONString(catalogJsonFromDb);
+        ops.set(&quot;catalogJSON&quot;, s);
+        return catalogJsonFromDb;
+    }
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
+    return res;
+}
+</code></pre>
+<p><strong>堆外内存溢出</strong><br>
+SpringBoot2默认使用Lettuce作为操作客户端，使用netty进行网络通信，Lettuce的bug会导致堆外内存溢出 -Xmx100m, netty没有指定下会使用与其一致的堆外内存。<br>
+可以通过 -Dio.netty.maxDirectMemory设置，但是只能减缓出现溢出的时间，解决方案：1. 升级Lettuce客户端 2. 使用jedis</p>
+<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+    &lt;exclusions&gt;
+        &lt;exclusion&gt;
+            &lt;groupId&gt;io.lettuce&lt;/groupId&gt;
+            &lt;artifactId&gt;lettuce-core&lt;/artifactId&gt;
+        &lt;/exclusion&gt;
+    &lt;/exclusions&gt;
+&lt;/dependency&gt;
+
+&lt;dependency&gt;
+    &lt;groupId&gt;redis.clients&lt;/groupId&gt;
+    &lt;artifactId&gt;jedis&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>大幅提高了响应效率和吞吐量<br>
+<img src="https://dxone1.github.io//post-images/1637117151652.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637117212321.png" alt="" loading="lazy"></p>
+<h2 id="缓存失效问题">缓存失效问题</h2>
+<ol>
+<li>缓存穿透</li>
+</ol>
+<ul>
+<li>缓存穿透是指查询一个一定不存在的数据， 由于缓存是不命中， 将去查询数据库， 但是数<br>
+据库也无此记录， 我们没有将这次查询的 null 写入缓存， 这将导致这个不存在的数据每次<br>
+请求都要到存储层去查询， 失去了缓存的意义。</li>
+<li>在流量大时， 可能 DB 就挂掉了， 要是有人利用不存在的 key 频繁攻击我们的应用， 这就是<br>
+漏洞。</li>
+<li>解决：<br>
+缓存空结果、 并且设置短的过期时间。</li>
+</ul>
+<ol start="2">
+<li>缓存雪崩</li>
+</ol>
+<ul>
+<li>缓存雪崩是指在我们设置缓存时采用了相同的过期时间， 导致缓存在某一时刻同时失<br>
+效， 请求全部转发到 DB， DB 瞬时压力过重雪崩。</li>
+<li>解决：<br>
+原有的失效时间基础上增加一个随机值， 比如 1-5 分钟随机， 这样每一个缓存的过期时间的<br>
+重复率就会降低， 就很难引发集体失效的事件。</li>
+</ul>
+<ol start="3">
+<li>缓存击穿</li>
+</ol>
+<ul>
+<li>对于一些设置了过期时间的 key， 如果这些 key 可能会在某些时间点被超高并发地访问，<br>
+是一种非常“热点”的数据。</li>
+<li>这个时候， 需要考虑一个问题： 如果这个 key 在大量请求同时进来前正好失效， 那么所<br>
+有对这个 key 的数据查询都落到 db， 我们称为缓存击穿。</li>
+<li>解决：<br>
+加锁</li>
+</ul>
+<h2 id="加锁">加锁</h2>
+<ol>
+<li>简单的本地锁</li>
+</ol>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDb() {
+        /**
+         * 将多次查数据库优化为一次
+         */
+        synchronized (this) {
+            String catalogJSON = redisTemplate.opsForValue().get(&quot;catalogJSON&quot;);
+            if(!StringUtils.isEmpty(catalogJSON)) {
+                //缓存不为空直接返回
+                //double check的逻辑
+                Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
+                return res;
+            }
+      ......
+
+      // 将放入缓存操作也放入锁同步块中
+        String s = JSON.toJSONString(map);
+        redisTemplate.opsForValue().set(&quot;catalogJSON&quot;, s, 1, TimeUnit.DAYS);
+        return map;
+}
+</code></pre>
+<p>类似于Double check的机制，但是在分布式集群情况下则因为每个进程只能锁自己的，所以无法实现完全的加锁，这时候就需要分布式锁。然而实际上在一般规模集群也可以防止缓存击穿。<br>
+发现只有一次的查数据库操作<br>
+<img src="https://dxone1.github.io//post-images/1637126480451.png" alt="" loading="lazy"><br>
+2. 分布式锁<br>
+当有多个应用时测试，会有可能多个线程都查询了数据库，想要实现全局只有一次查询则需要添加分布式锁<br>
+<img src="https://dxone1.github.io//post-images/1637126981627.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637126984844.png" alt="" loading="lazy"><br>
+分布式锁的机制<br>
+<img src="https://dxone1.github.io//post-images/1637130836138.png" alt="" loading="lazy"><br>
+使用<code>setnx()</code>命令可以尝试原子的给redeis设置锁，如果已经存在了则无法成功上锁。执行<code>set lock 1 NX</code>即同时只有一个会加上锁。<br>
+在加锁时，必须原子地设置过期时间，否则因为线程崩溃会导致死锁。同时，解锁也需要原子地判断当前解锁的是否是当前线程设置的锁，必须匹配锁的value才可以解锁，这也需要时原子性操作，可以使用LUA脚本实现。保证了所有线程只查询一次数据库，但是吞吐量下降了不少：</p>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedisLock() {
+    // 占用分布式锁
+    String uuid = UUID.randomUUID().toString();
+    Boolean lock = redisTemplate.opsForValue().setIfAbsent(&quot;lock&quot;, uuid, 10, TimeUnit.SECONDS);
+    if (lock) {
+        // 加锁成功
+        System.out.println(&quot;分布式锁获取成功...&quot;);
+        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
+        try {
+            dataFromDb = getDataFromDb();
+        } finally {
+            /**
+                * 直接删除锁有可能
+                * 因为业务时间过长，锁自动失效，删除的是别的线程的锁！
+                * 解决方法是加入唯一标识。
+                * 然而到redis通信也仍然可能因为非原子操作而导致错误！需要使用lua脚本实现
+                */
+            String script = &quot;if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end&quot;;
+            Long lockSuccess = redisTemplate.execute(new DefaultRedisScript&lt;Long&gt;(script, Long.class), Arrays.asList(&quot;lock&quot;), uuid);
+        }
+        return dataFromDb;
+    } else {
+        // 加锁不成功...重试
+        System.out.println(&quot;获取分布式锁不成功，等待重试...&quot;);
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return getCatalogJsonFromDbWithRedisLock(); //自旋
+    }
+}
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637136159650.png" alt="" loading="lazy"></figure>
+<h2 id="使用redisson分布式框架">使用Redisson分布式框架</h2>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;!--作为分布式锁/对象框架--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.redisson&lt;/groupId&gt;
+    &lt;artifactId&gt;redisson&lt;/artifactId&gt;
+    &lt;version&gt;3.12.0&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>配置</li>
+</ol>
+<pre><code class="language-java">@Configuration
+public class MyRedissonConfig {
+    @Bean(destroyMethod=&quot;shutdown&quot;)
+    RedissonClient redisson() throws IOException {
+        Config config = new Config();
+        config.useSingleServer().setAddress(&quot;192.168.180.3:6379&quot;);
+        return Redisson.create(config);
+    }
+}
+</code></pre>
+<ol start="3">
+<li>使用<br>
+Redisson的分布式锁实现了JUC的Lock接口，可以直接按照JUC的思维编写，底层的分布式锁操作被封装为透明的。Redisson也可以实现锁的自动续期。即在业务期间也会续上锁的生存周期。<br>
+读写锁的逻辑：<br>
+读写互斥，读之间共享，写之间互斥</li>
+</ol>
+<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedissonLock() {
+    RLock lock = redisson.getLock(&quot;CatalogJson-lock&quot;);
+    lock.lock(10, TimeUnit.SECONDS);
+    // 加锁成功
+    System.out.println(&quot;分布式锁获取成功...&quot;);
+    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
+    try {
+        dataFromDb = getDataFromDb();
+    } finally {
+        lock.unlock();
+    }
+    return dataFromDb;
+}
+</code></pre>
+<ol start="4">
+<li>缓存一致性问题</li>
+</ol>
+<ul>
+<li>双写：每次更新数据库都修改缓存</li>
+<li>失效：每次更新只删除缓存，等查询未命中再添加<br>
+可以使用Canal解决缓存一致性问题，采用订阅机制，类似于观察者模式的推送更新。本项目使用分布式读写锁解决<br>
+<img src="https://dxone1.github.io//post-images/1637156753301.png" alt="" loading="lazy"></li>
+</ul>
+<h2 id="统一缓存技术spring-cache">统一缓存技术：Spring Cache</h2>
+<p>Spring 从 3.1 开始定义了 org.springframework.cache.Cache 和org.springframework.cache.CacheManager 接口来统一不同的缓存技术；并支持使用 JCache（JSR-107） 注解简化我们开发<br>
+Cache 接口为缓存的组件规范定义， 包含缓存的各种操作集合；Cache 接 口 下 Spring 提 供 了 各 种 xxxCache 的 实 现 ； 如 RedisCache ， EhCacheCache , ConcurrentMapCache 等<br>
+<img src="https://dxone1.github.io//post-images/1637157410269.png" alt="" loading="lazy"></p>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-cache&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>写配置<br>
+会自动配置RedisCacheConfiguration，也会自动配置缓存管理器RedisCacheManager<br>
+需要配置Redis的缓存策略</li>
+</ol>
+<pre><code class="language-txt">spring.cache.type=redis
+</code></pre>
+<ol start="3">
+<li>开启缓存功能 @EnableCaching</li>
+<li>使用注解完成缓存操作</li>
+</ol>
+<pre><code class="language-java">//需要指定放到哪个缓存分区中
+@Cacheable({&quot;category&quot;}) //代表当前方法的结果需要缓存，如果缓存中有则不调用，没有则调用方法并添加到缓存中
+@Override
+public List&lt;CategoryEntity&gt; getLevel1Categorys() {
+    long l = System.currentTimeMillis();
+    List&lt;CategoryEntity&gt; categoryEntities = this.baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, 0));
+    System.out.println(&quot;消耗时间: &quot; + (System.currentTimeMillis() - l));
+    return categoryEntities;
+}
+</code></pre>
+<p>配置文件中设置存活时间，使用注解的key属性定义key。将缓存数据保存为json格式可以使用自定义缓存管理器的方式。</p>
+<h3 id="自定义rediscacheconfiguration">自定义redisCacheConfiguration</h3>
+<p>可以在这里定义序列化配置</p>
+<pre><code class="language-java">@EnableCaching
+@Configuration
+public class MyCacheConfig {
+   @Bean
+    RedisCacheConfiguration redisCacheConfiguration(CacheProperties cacheProperties) {
+        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig();
+        config = config.serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()));
+        config = config.serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+        // 将配置文件中的配置配置上
+        CacheProperties.Redis redisProperties = cacheProperties.getRedis();
+        if (redisProperties.getTimeToLive() != null) {
+            config = config.entryTtl(redisProperties.getTimeToLive());
+        }
+        if (redisProperties.getKeyPrefix() != null) {
+            config = config.prefixKeysWith(redisProperties.getKeyPrefix());
+        }
+        if (!redisProperties.isCacheNullValues()) {
+            config = config.disableCachingNullValues();
+        }
+        if (!redisProperties.isUseKeyPrefix()) {
+            config = config.disableKeyPrefix();
+        }
+        return config;
+    }
+}
+</code></pre>
+<p>增加一些配置：</p>
+<pre><code class="language-txt">spring.cache.type=redis
+spring.cache.redis.time-to-live=3600000
+spring.cache.redis.key-prefix=CACHE_
+spring.cache.redis.use-key-prefix=true
+# 缓存空值，防止缓存穿透
+spring.cache.redis.cache-null-values=true
+</code></pre>
+<h3 id="失效模式-cacheevict">失效模式 @CacheEvict</h3>
+<p>一旦更新菜单就清空缓存</p>
+<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;)
+@Transactional
+@Override
+public void updateCascade(CategoryEntity category) {
+    this.updateById(category);
+    categoryBrandRelationService.updateCategory(category.getCatId(), category.getName());
+}
+</code></pre>
+<p>@Caching可以指定多个缓存操作，这样就可以一次清楚多个缓存</p>
+<pre><code class="language-java">@Caching(evict = {
+        @CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;),
+        @CacheEvict(value = &quot;category&quot;, key = &quot;'getCatalogJson'&quot;)
+})
+</code></pre>
+<p>或者按照分区全部删除</p>
+<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, allEntries = true)
+</code></pre>
+<p>@CachePut：双写模式的接口，我们使用失效模式 @CacheEvict</p>
+<h3 id="原理">原理</h3>
+<ol>
+<li>穿透：可以设置存储空数据</li>
+<li>雪崩：可以设置过期时间</li>
+<li>击穿：加锁<br>
+SpringCache的会创建RedisCacheManager -&gt; RedisCache，默认是不加锁的。想解决击穿问题使用@Cacheable(sync = true)即可加本地锁。<br>
+@Cacheable是读方法<br>
+@CacheEvict是更新方法</li>
+</ol>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day11：反向代理和压力测试]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day11/</id>
@@ -1654,486 +1998,6 @@ public void updateBrand(Long brandId, String name) {
 <img src="https://dxone1.github.io//post-images/1636375664862.png" alt="" loading="lazy"><br>
 同理，分类的修改也要修改关联表项目<br>
 最后，注意到同时修改两张表，要么同时成功，要么同时失败，需要使用事务保证一致性。在MybatisConfig配置类已经使用@EnableTransactionManagement开启了事务管理，只需要在方法上使用@Transactiona添加事务即可</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 day4：品牌管理]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day4pin-pai-guan-li/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day4pin-pai-guan-li/">
-        </link>
-        <updated>2021-11-06T11:45:12.000Z</updated>
-        <content type="html"><![CDATA[<h2 id="使用逆向工程的前后端代码">使用逆向工程的前后端代码</h2>
-<p>renren-fast的代码生成器也可以生成前端代码，首先看sql表<br>
-<img src="https://dxone1.github.io//post-images/1636199377250.png" alt="" loading="lazy"><br>
-添加一个品牌管理的页面，直接使用逆向生成的前端代码即可。<br>
-<img src="https://dxone1.github.io//post-images/1636200595120.png" alt="" loading="lazy"></p>
-<h2 id="优化前端体验">优化前端体验</h2>
-<p>首先将显示状态一栏变为开关按钮，更加的人性化</p>
-<ul>
-<li>显示状态一栏应该改为开关</li>
-<li>新增的对话框中显示状态一栏也应为开关</li>
-<li>品牌地址应该为文件上传（下一节）</li>
-</ul>
-<pre><code class="language-js">&lt;el-table-column
-    prop=&quot;showStatus&quot;
-    header-align=&quot;center&quot;
-    align=&quot;center&quot;
-    label=&quot;显示状态&quot;
-&gt;
-    &lt;!-- 插入一个template --&gt;
-    &lt;template slot-scope=&quot;scope&quot;&gt;
-        &lt;el-switch
-            v-model=&quot;scope.row.showStatus&quot;
-            active-color=&quot;#13ce66&quot;
-            inactive-color=&quot;#ff4949&quot;
-            // 修改为1显示，0关闭
-            :active-value=&quot;1&quot;
-            :inactive-value=&quot;0&quot;
-            @change=&quot;updateBrandStatus(scope.row)&quot;
-        &gt;
-        &lt;/el-switch&gt;
-    &lt;/template&gt;
-&lt;/el-table-column&gt;
-
-// 回调函数
-// 更新显示状态
-updateBrandStatus(data) {
-    console.log(&quot;状态&quot;, data);
-    let { brandId, showStatus } = data;
-    this.$http({
-        url: this.$http.adornUrl(&quot;/product/brand/update&quot;),
-        method: &quot;post&quot;,
-        data: this.$http.adornData({ brandId, showStatus }, false),
-    }).then(({ data }) =&gt; {
-        this.$message({
-            type: &quot;success&quot;,
-            message: &quot;状态更新成功&quot;,
-        });
-    });
-},
-</code></pre>
-<p>效果：<br>
-<img src="https://dxone1.github.io//post-images/1636202534702.png" alt="" loading="lazy"></p>
-<h2 id="开通云存储和使用文件上传">开通云存储和使用：文件上传</h2>
-<p><img src="https://dxone1.github.io//post-images/1636257477896.png" alt="" loading="lazy"><br>
-在分布式系统中，如果文件保存在服务器本地则因为负载均衡而无法确保访问，所以需要使用统一的文件存储服务器。自建服务器的效率不高，这里使用阿里云的云存储服务功能。<br>
-<img src="https://dxone1.github.io//post-images/1636257725534.png" alt="" loading="lazy"><br>
-为了避免直接暴露阿里云服务器的账号密码，同时减少上传文件过服务器带来的性能压力，使用如下的架构<br>
-<img src="https://dxone1.github.io//post-images/1636258870146.png" alt="" loading="lazy"></p>
-<ol>
-<li>先导入阿里云oss依赖</li>
-<li>在阿里云上开通一个子账户，配置用户和密码(AccessKeyId AccessKeySecret)<br>
-<img src="https://dxone1.github.io//post-images/1636260427009.png" alt="" loading="lazy"></li>
-</ol>
-<pre><code class="language-java">@Test
-public void testUpload() throws FileNotFoundException {
-    // yourEndpoint填写Bucket所在地域对应的Endpoint。以华东1（杭州）为例，Endpoint填写为https://oss-cn-hangzhou.aliyuncs.com。
-    String endpoint = &quot;oss-cn-shanghai.aliyuncs.com&quot;;
-    // 阿里云账号AccessKey拥有所有API的访问权限，风险很高。强烈建议您创建并使用RAM用户进行API访问或日常运维，请登录RAM控制台创建RAM用户。
-    String accessKeyId = &quot;（隐藏）&quot;;
-    String accessKeySecret = &quot;[KeySecret]（隐藏）&quot;;
-
-    // 创建OSSClient实例。
-    OSS ossClient = new OSSClientBuilder().build(endpoint, accessKeyId, accessKeySecret);
-
-    // 填写本地文件的完整路径。如果未指定本地路径，则默认从示例程序所属项目对应本地路径中上传文件流。
-    InputStream inputStream = new FileInputStream(&quot;C:\\Users\\user\\Desktop\\惠2.jpg&quot;);
-    // 依次填写Bucket名称（例如examplebucket）和Object完整路径（例如exampledir/exampleobject.txt）。Object完整路径中不能包含Bucket名称。
-    ossClient.putObject(&quot;dxone-mall&quot;, &quot;惠2.jpg&quot;, inputStream);
-
-    // 关闭OSSClient。
-    ossClient.shutdown();
-    System.out.println(&quot;上传成功...&quot;);
-}
-</code></pre>
-<p>效果<br>
-<img src="https://dxone1.github.io//post-images/1636260852130.png" alt="" loading="lazy"><br>
-也可以使用SpringCloudAlibaba的功能</p>
-<pre><code class="language-xml">&lt;!--Alibaba OSS--&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
-    &lt;artifactId&gt;spring-cloud-starter-alicloud-oss&lt;/artifactId&gt;
-&lt;/dependency&gt;
-</code></pre>
-<p>只需要在aplication.yaml中配置即可</p>
-<pre><code class="language-yaml"># 文件oos服务的配置
-alicloud:
-    access-key: 隐藏
-    secret-key: 隐藏
-    oss:
-        endpoint: oss-cn-shanghai.aliyuncs.com
-</code></pre>
-<p>也成功了<br>
-<img src="https://dxone1.github.io//post-images/1636261615240.png" alt="" loading="lazy"></p>
-<p><strong>服务端签名后直传服务</strong><br>
-mall-third-party<br>
-将oss的部分全部迁移到这个服务里，测试成功<br>
-<img src="https://dxone1.github.io//post-images/1636265327134.png" alt="" loading="lazy"><br>
-参考官方文档：https://help.aliyun.com/document_detail/31926.html 是服务端签名直传的最佳实践。</p>
-<ol>
-<li>先编写一个OssController，用于获取阿里云的policy</li>
-</ol>
-<pre><code class="language-java">@RestController
-public class OssController {
-
-    @Autowired
-    OSS ossClient;
-
-    @Value(&quot;${spring.cloud.alicloud.oss.endpoint}&quot;)
-    private String endpoint;
-
-    @Value(&quot;${spring.cloud.alicloud.oss.bucket}&quot;)
-    private String bucket;
-
-    @Value(&quot;${spring.cloud.alicloud.access-key}&quot;)
-    private String accessId;
-
-    @RequestMapping(&quot;/oss/policy&quot;)
-    public Map&lt;String, String&gt; policy() {
-
-        String host = &quot;https://&quot; + bucket + &quot;.&quot; + endpoint; // host的格式为 bucketname.endpoint
-        // callbackUrl为上传回调服务器的URL，请将下面的IP和Port配置为您自己的真实信息。
-        //String callbackUrl = &quot;http://88.88.88.88:8888&quot;;
-        String format = new SimpleDateFormat(&quot;yyyy-MM-dd&quot;).format(new Date());
-        String dir = format + &quot;/&quot;; // 用户上传文件时指定的前缀。
-        Map&lt;String, String&gt; respMap = null;
-        try {
-            long expireTime = 30;
-            long expireEndTime = System.currentTimeMillis() + expireTime * 1000;
-            Date expiration = new Date(expireEndTime);
-            // PostObject请求最大可支持的文件大小为5 GB，即CONTENT_LENGTH_RANGE为5*1024*1024*1024。
-            PolicyConditions policyConds = new PolicyConditions();
-            policyConds.addConditionItem(PolicyConditions.COND_CONTENT_LENGTH_RANGE, 0, 1048576000);
-            policyConds.addConditionItem(MatchMode.StartWith, PolicyConditions.COND_KEY, dir);
-
-            String postPolicy = ossClient.generatePostPolicy(expiration, policyConds);
-            byte[] binaryData = postPolicy.getBytes(StandardCharsets.UTF_8);
-            String encodedPolicy = BinaryUtil.toBase64String(binaryData);
-            String postSignature = ossClient.calculatePostSignature(postPolicy);
-
-            respMap = new LinkedHashMap&lt;String, String&gt;();
-            respMap.put(&quot;accessid&quot;, accessId);
-            respMap.put(&quot;policy&quot;, encodedPolicy);
-            respMap.put(&quot;signature&quot;, postSignature);
-            respMap.put(&quot;dir&quot;, dir);
-            respMap.put(&quot;host&quot;, host);
-            respMap.put(&quot;expire&quot;, String.valueOf(expireEndTime / 1000));
-            // respMap.put(&quot;expire&quot;, formatISO8601Date(expiration));
-
-        } catch (Exception e) {
-            // Assert.fail(e.getMessage());
-            System.out.println(e.getMessage());
-        } finally {
-            ossClient.shutdown();
-        }
-        return respMap;
-    }
-}
-</code></pre>
-<ol start="2">
-<li>在gateway中配置路由</li>
-</ol>
-<pre><code class="language-yaml">- id: third_party_route
-    uri: lb://mall-third-party
-    predicates:
-        - Path=/api/thirdparty/**
-    # 路径重写
-    filters:
-        - RewritePath=/api/thirdparty/(?&lt;segment&gt;.*),/$\{segment}
-    # localhost:88/api/thirdparty/** -&gt; localhost:30000/**
-</code></pre>
-<ol start="3">
-<li>前端联调<br>
-先记下bucket域名：dxone-mall.oss-cn-shanghai.aliyuncs.com<br>
-将其写入单文件/多文件上传的组件中（太长了省略，也是el-ui的组件）<br>
-将组件导入品牌vue中</li>
-</ol>
-<pre><code class="language-js">import SingleUpload from &quot;@/components/upload/singleUpload&quot;
-
-// 使用
-&lt;single-upload v-model=&quot;dataForm.logo&quot;&gt;&lt;/single-upload&gt;
-
-// vue中声明一个component
-components: { SingleUpload },
-</code></pre>
-<p>调整：因为之前写的Controller返回的是一个map，需要返回成R对象。<br>
-<strong>在提交给OSS时存在跨域问题，在阿里云中开放跨域即可</strong><br>
-效果<br>
-<img src="https://dxone1.github.io//post-images/1636268792634.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636268809062.png" alt="" loading="lazy"><br>
-最终能拿到该图片：图片地址也能拿到<br>
-<img src="https://dxone1.github.io//post-images/1636269250814.png" alt="" loading="lazy"><br>
-4. 写品牌新增功能<br>
-注意需要将展示的地址换为图片显示，一样使用element-ui<br>
-<img src="https://dxone1.github.io//post-images/1636270562321.png" alt="" loading="lazy"><br>
-5. 表单校验功能：例如首字母只能有一个字母等<br>
-Form 组件提供了表单验证的功能，只需要通过 rules 属性传入约定的验证规则，并将 Form-Item 的 prop 属性设置为需校验的字段名即可。校验规则参见 async-validator<br>
-在校验规则中可以用validator指定一个方法进行校验<br>
-<strong>前端校验</strong></p>
-<pre><code class="language-js">firstLetter: [
-    {
-        validator: (rule, value, callback) =&gt; {
-            if (value == &quot;&quot;) {
-                callback(new Error(&quot;首字母必须填写&quot;));
-            } else if (!/^[a-zA-Z]$/.test(value)) {
-                callback(new Error(&quot;首字母必须在a-z或A-Z之间&quot;));
-            } else {
-                callback();
-            }
-        },
-        trigger: &quot;blur&quot;,
-    },
-],
-sort: [
-    {
-        validator: (rule, value, callback) =&gt; {
-            if (value == &quot;&quot;) {
-                callback(new Error(&quot;排序字段必须填写&quot;));
-            } else if (!Number.isInteger(value) ||  value &lt; 0) {
-                callback(new Error(&quot;排序必须是一个非负整数&quot;));
-            } else {
-                callback();
-            }
-        },
-        trigger: &quot;blur&quot;,
-    },
-],
-</code></pre>
-<p>注意：后端做保存更新等操作时也要进行校验，保证数据的可靠性！<br>
-6. 后端校验：使用JSR303</p>
-<ul>
-<li>给需要校验的Bean添加校验注解（见javax.validation.constraints）</li>
-</ul>
-<pre><code class="language-java">/**
-* 品牌名
-*/
-@NotBlank(message = &quot;品牌名必须提交&quot;)
-private String name;
-</code></pre>
-<ul>
-<li>在Controller标注对于校验传入值标注@Valid</li>
-</ul>
-<pre><code class="language-java">/**
-* 保存
-*/
-@RequestMapping(&quot;/save&quot;)
-    public R save(@Valid @RequestBody BrandEntity brand){
-    brandService.save(brand);
-
-    return R.ok();
-}
-</code></pre>
-<p>简单测试下效果：400校验不通过<br>
-<img src="https://dxone1.github.io//post-images/1636271891671.png" alt="" loading="lazy"><br>
-业务上需要封装错误提示<br>
-紧跟校验bean后加上BindingResult，就可以自己封装</p>
-<pre><code class="language-java">/**
-* 保存
-*/
-@RequestMapping(&quot;/save&quot;)
-public R save(@Valid @RequestBody BrandEntity brand, BindingResult result) {
-    if (result.hasErrors()) {
-        HashMap&lt;String, String&gt; map = new HashMap&lt;&gt;();
-        result.getFieldErrors().forEach((item) -&gt; {
-            // 错误提示
-            String message = item.getDefaultMessage();
-            // 错误字段名
-            String field = item.getField();
-            map.put(field, message);
-        });
-        return R.error(400,&quot;提交数据不合法&quot;).put(&quot;data&quot;, map);
-    } else {
-        brandService.save(brand);
-    }
-    return R.ok();
-}
-</code></pre>
-<p>效果<br>
-<img src="https://dxone1.github.io//post-images/1636272559187.png" alt="" loading="lazy"><br>
-@URL可以校验URL地址<br>
-@Pattern注解自定义校验规则，传正则表达式<br>
-完成一个基础的校验如下：<br>
-<img src="https://dxone1.github.io//post-images/1636272938144.png" alt="" loading="lazy"></p>
-<h3 id="高级主题统一异常处理">高级主题：统一异常处理</h3>
-<p>提取出一个ControllerAdvice类，处理所有的异常，这样原Controller只需要把异常抛出即可</p>
-<pre><code class="language-java">/**
- * 集中处理所有的异常
- */
-@Slf4j
-@RestControllerAdvice(basePackages = &quot;com.dong.mall.product.controller&quot;)
-public class MallExceptionControllerAdvice {
-
-    /**
-     * 专职处理数据校验的异常
-     * @param e 异常实例
-     * @return 返回json的错误信息
-     */
-    @ExceptionHandler(value = MethodArgumentNotValidException.class)
-    public R handleValidException(MethodArgumentNotValidException e) {
-        log.error(&quot;数据校验问题{},异常类型{}&quot;,e.getMessage(), e.getClass());
-        BindingResult result = e.getBindingResult();
-        HashMap&lt;String, String&gt; errorMap = new HashMap&lt;&gt;();
-        result.getFieldErrors().forEach((item) -&gt; {
-            // 错误提示
-            String message = item.getDefaultMessage();
-            // 错误字段名
-            String field = item.getField();
-            errorMap.put(field, message);
-        });
-        return R.error(400,&quot;提交数据不合法&quot;).put(&quot;data&quot;, errorMap);
-    }
-
-    /**
-     * 兜底异常处理
-     * @param throwable
-     * @return
-     */
-    @ExceptionHandler(value = Throwable.class)
-    public R handleException(Throwable throwable) {
-        return R.error();
-    }
-}
-</code></pre>
-<p>规范：采用这种状态码规格</p>
-<pre><code class="language-txt">* 错误码和错误信息定义类
-* 1. 错误码定义规则为 5 为数字
-* 2. 前两位表示业务场景， 最后三位表示错误码。 例如： 100001。 10:通用 001:系统未知
-异常
-* 3. 维护错误码后需要维护错误描述， 将他们定义为枚举形式
-* 错误码列表：
-* 10: 通用
-* 001： 参数格式校验
-* 11: 商品
-* 12: 订单
-* 13: 购物车
-* 14: 物流
-</code></pre>
-<p>添加一个enum定义状态码</p>
-<pre><code class="language-java">public enum BizCodeEnum {
-    UNKNOWN_EXCEPTION(10000, &quot;系统未知异常&quot;),
-    VALID_EXCEPTION(10001, &quot;参数格式校验失败&quot;);
-
-    private int code;
-    private String msg;
-
-    BizCodeEnum(int code, String msg) {
-        this.code = code;
-        this.msg = msg;
-    }
-
-    public int getCode() {
-        return code;
-    }
-
-    public String getMsg() {
-        return msg;
-    }
-}
-</code></pre>
-<p>于是输出变为</p>
-<pre><code class="language-java">return R.error(BizCodeEnum.VALID_EXCEPTION.getCode(),BizCodeEnum.VALID_EXCEPTION.getMsg()).put(&quot;data&quot;, errorMap);
-/*********************************/
-return R.error(BizCodeEnum.UNKNOWN_EXCEPTION.getCode(), BizCodeEnum.UNKNOWN_EXCEPTION.getMsg());
-</code></pre>
-<h3 id="高级主题分组校验">高级主题：分组校验</h3>
-<p>新增规则和修改规则很有可能不同：例如id等部分<br>
-使用方法：</p>
-<ol>
-<li>在校验注解上标注groups属性<br>
-在common中再添加用于分组校验的接口<br>
-<img src="https://dxone1.github.io//post-images/1636274707620.png" alt="" loading="lazy"><br>
-校验注解标注上这些接口即可</li>
-</ol>
-<pre><code class="language-java">/**
-* 品牌id
-*/
-// 修改时不允许为空
-@NotNull(message = &quot;修改必须指定品牌id&quot;,groups = {UpdateGroup.class})
-// 新增时必须为空
-@Null(message = &quot;新增不能指定品牌id&quot;, groups = {AddGroup.class})
-@TableId
-private Long brandId;
-</code></pre>
-<ol start="2">
-<li>在Controller上标注@Validated()指定该controller进行哪些group的校验</li>
-</ol>
-<pre><code class="language-java">@RequestMapping(&quot;/save&quot;)
-public R save(@Validated(AddGroup.class) @RequestBody BrandEntity brand/*, BindingResult result*/) {
-</code></pre>
-<p><strong>在这种情况下，没有标注分组的注解是默认不起作用的。必须指定</strong><br>
-每一个都按照上述分组进行处理即可完成多场景的复杂校验。</p>
-<h3 id="高级主题自定义校验">高级主题：自定义校验</h3>
-<ol>
-<li>编写一个自定义的校验注解<br>
-考虑指定showStatus必须为指定的几种可能性</li>
-</ol>
-<pre><code class="language-java">/**
-* 显示状态[0-不显示；1-显示]
-*/
-@ListValue(vals={0,1})
-private Integer showStatus;
-</code></pre>
-<p>注解编写：</p>
-<pre><code class="language-java">@Documented
-// 指定用哪个校验器
-@Constraint(validatedBy = {ListValueConstraintValidator.class})
-@Target({ METHOD, FIELD, ANNOTATION_TYPE, CONSTRUCTOR, PARAMETER, TYPE_USE })
-@Retention(RUNTIME)
-public @interface ListValue {
-    // 抄已有的校验注解
-    String message() default &quot;{com.dong.common.valid.ListValue.message}&quot;;
-
-    Class&lt;?&gt;[] groups() default { };
-
-    Class&lt;? extends Payload&gt;[] payload() default { };
-
-    int[] vals() default {};
-}
-</code></pre>
-<p>编写配置文件</p>
-<pre><code class="language-properties">com.dong.common.valid.ListValue.message=必须提交指定的值
-</code></pre>
-<ol start="2">
-<li>编写一个自定义校验器</li>
-</ol>
-<pre><code class="language-java">/**
- * 自定义一个校验器
- */
-public class ListValueConstraintValidator implements ConstraintValidator&lt;ListValue, Integer&gt; {
-    private Set&lt;Integer&gt; set = new HashSet&lt;&gt;();
-
-    /**
-     * 初始化方法
-     * @param constraintAnnotation 能从中获得校验注解标注的信息
-     */
-    @Override
-    public void initialize(ListValue constraintAnnotation) {
-        int[] vals = constraintAnnotation.vals();
-        for (int val : vals) {
-            set.add(val);
-        }
-    }
-
-    /**
-     * 判断是否校验成功
-     * @param value 需要校验的值
-     * @param context 校验的上下文环境
-     * @return
-     */
-    @Override
-    public boolean isValid(Integer value, ConstraintValidatorContext context) {
-        return set.contains(value);
-    }
-}
-</code></pre>
-<ol start="3">
-<li>关联注解和校验器<br>
-测试：<br>
-<img src="https://dxone1.github.io//post-images/1636277405746.png" alt="" loading="lazy"><br>
-前端效果<br>
-<img src="https://dxone1.github.io//post-images/1636278646366.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636278585870.jpg" alt="" loading="lazy"></li>
-</ol>
 ]]></content>
     </entry>
 </feed>
