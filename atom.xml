@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-18T08:48:44.258Z</updated>
+    <updated>2021-11-20T11:56:05.781Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,356 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城服务 day13：检索服务]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/">
+        </link>
+        <updated>2021-11-18T08:50:04.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="搭建页面">搭建页面</h2>
+<p>之前的布置已经完成了后台系统上架商品到ES的业务，现在需要检索商品的业务。仍然采用Nginx动静分离的模式</p>
+<ol>
+<li>在nginx中配置所有*.mall.com和mall.com都发送到网关</li>
+<li>我们设定所有search.mall.com为搜索服务，在html/static/search中放置了其静态资源</li>
+<li>设定网关的转发</li>
+</ol>
+<pre><code class="language-yaml">- id: mall_search_route
+    uri: lb://mall-search
+    # 使用Host域名方式进行路由：任意mall.com旗下的全部路由给mall-product
+    predicates:
+    - Host=search.mall.com
+</code></pre>
+<h2 id="进入页面">进入页面</h2>
+<ol>
+<li>三级分类进入</li>
+<li>检索框检索</li>
+<li>选择筛选条件进入<br>
+<strong>封装查询参数：</strong></li>
+</ol>
+<pre><code class="language-java">@Data
+public class SearchParam {
+
+    private String keyword;
+    private Long catalog3Id;
+
+    /**
+     * 排序条件
+     * sort=saleCount_asc/desc
+     * sort=skuPrice_asc/desc
+     * sort=hotScore_asc/desc
+     */
+    private String sort;
+
+    /**
+     * 过滤条件
+     * hasStock=0/1
+     * skuPrice=1_500/_500/500_
+     * brandId
+     * attrs：属性值
+     * attrs=1_其他:安卓&amp;attrs=2_5寸:6寸
+     */
+    private Integer hasStock; // 有货
+    private String skuPrice; // 价格区间
+    private List&lt;Long&gt; brandId;
+    private List&lt;String&gt; attrs;
+
+    private Integer pageNum; //页面号
+
+}
+</code></pre>
+<p><strong>封装搜索返回</strong></p>
+<pre><code class="language-java">@Data
+public class SearchResult {
+    //查询到的所有商品信息
+    private List&lt;SkuEsModel&gt; products;
+    //分页信息
+    private Integer pageNum;
+    private Long total;
+    private Integer totalPages;
+    //当前查询到的结果中所有涉及的品牌
+    private List&lt;BrandVo&gt; brands;
+    //当前查询到的结果中所有涉及的分类
+    private List&lt;CatalogVo&gt; catalogs;
+    //当前查询到的结果中所有涉及的属性
+    private List&lt;AttrVo&gt; attrs;
+
+    @Data
+    public static class BrandVo {
+        private Long brandId;
+        private String brandName;
+        private String brandImg;
+    }
+
+    @Data
+    public static class AttrVo {
+        private Long attrId;
+        private String attrName;
+        private List&lt;String&gt; attrValue;
+    }
+
+    @Data
+    public static class CatalogVo {
+        private Long catalogId;
+        private String catalogName;
+    }
+}
+</code></pre>
+<h2 id="es查询业务">ES查询业务</h2>
+<p>主要有以下三块：</p>
+<ol>
+<li>must模糊匹配titile，过滤（按照属性，品牌，分类，价格区间，库存）</li>
+<li>排序，分页，高亮</li>
+<li>聚合分析</li>
+</ol>
+<h3 id="动态构建dsl语句">动态构建DSL语句</h3>
+<p>逻辑：自动注入一个RestHighLevelClient，client可以执行search等操作。执行search操作要放一个SearchRequest，而SearchRequest由SourceBuilder构建。SourceBuilder在执行query查询时使用QueryBuilder。</p>
+<pre><code class="language-java">/**
+    * 准备检索请求
+    * @return
+    */
+private SearchRequest buildSearchRequest(SearchParam param) {
+    // sourceBuilder构建请求
+    SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+    /**
+        * must模糊匹配，过滤（按照属性，品牌，分类，价格区间，库存）
+        */
+    //1.构建bool queryBuilder
+    BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+    //1.1 must: 匹配skuTitle
+    if(!StringUtils.isEmpty(param.getKeyword())) {
+        boolQuery.must(QueryBuilders.matchQuery(&quot;skuTitle&quot;, param.getKeyword()));
+    }
+    //1.2 filter: 三级分类ID
+    if(param.getCatalog3Id() != null) {
+        boolQuery.filter(QueryBuilders.termQuery(&quot;catalogId&quot;, param.getCatalog3Id()));
+    }
+    //1.2 filter: brandId
+    if(param.getBrandId() != null &amp;&amp; param.getBrandId().size() &gt; 0) {
+        boolQuery.filter(QueryBuilders.termsQuery(&quot;brandId&quot;, param.getBrandId()));
+    }
+    //1.2 filter: attrs nested查询
+    if(param.getAttrs() != null &amp;&amp; param.getAttrs().size() &gt; 0) {
+        //形如 attr=1_5寸:6寸&amp;attr=2_16GB:8GB
+        for (String attr : param.getAttrs()) {
+            // 每个属性开始一个bool查询
+            BoolQueryBuilder nestedBoolQuery = QueryBuilders.boolQuery();
+            String[] s = attr.split(&quot;_&quot;);
+            String attrId = s[0];
+            String[] attrValues = s[1].split(&quot;:&quot;);
+            nestedBoolQuery.must(QueryBuilders.termsQuery(&quot;attrs.attrId&quot;, attrId));
+            nestedBoolQuery.must(QueryBuilders.termsQuery(&quot;attrs.attrValue&quot;, attrValues));
+            // 构建nested查询
+            NestedQueryBuilder nestedQuery = QueryBuilders.nestedQuery(&quot;attrs&quot;, nestedBoolQuery, ScoreMode.None);
+            boolQuery.filter(nestedQuery);
+        }
+    }
+    //1.2 filter: hasStock
+    boolQuery.filter(QueryBuilders.termQuery(&quot;hasStock&quot;, param.getHasStock() == 1));
+    //1.2 filter: 价格区间
+    if(!StringUtils.isEmpty(param.getSkuPrice())) {
+        RangeQueryBuilder rangeQuery = QueryBuilders.rangeQuery(&quot;skuPrice&quot;);
+        if (param.getSkuPrice().startsWith(&quot;_&quot;)) {
+            rangeQuery.lte(param.getSkuPrice().substring(1));
+        } else if (param.getSkuPrice().endsWith(&quot;_&quot;)) {
+            rangeQuery.gte(param.getSkuPrice().substring(0, param.getSkuPrice().length() - 1));
+        } else {
+            String[] s = param.getSkuPrice().split(&quot;_&quot;);
+            rangeQuery.gte(s[0]).lt(s[1]);
+        }
+        boolQuery.filter(rangeQuery);
+    }
+    //查询的语句构建完成
+    sourceBuilder.query(boolQuery);
+
+    /**
+        * 排序，分页，高亮
+        * sort=saleCount_asc/desc
+        * sort=skuPrice_asc/desc
+        * sort=hotScore_asc/desc
+        */
+    //2.1 排序
+    if(!StringUtils.isEmpty(param.getSort())) {
+        String sort = param.getSort();
+        String[] s = sort.split(&quot;_&quot;);
+        SortOrder order = &quot;asc&quot;.equalsIgnoreCase(s[1])? SortOrder.ASC: SortOrder.DESC;
+        sourceBuilder.sort(s[0], order);
+    }
+    //2.2 分页
+    sourceBuilder.from((param.getPageNum() - 1) * EsConstant.PRODUCT_PAGESIZE);
+    sourceBuilder.size(EsConstant.PRODUCT_PAGESIZE);
+    //2.3 高亮
+    if(!StringUtils.isEmpty(param.getKeyword())) {
+        HighlightBuilder highlightBuilder = new HighlightBuilder();
+        highlightBuilder.field(&quot;skuTitle&quot;);
+        highlightBuilder.preTags(&quot;&lt;b style='color:red'&gt;&quot;);
+        highlightBuilder.postTags(&quot;&lt;/b&gt;&quot;);
+        sourceBuilder.highlighter(highlightBuilder);
+    }
+
+    /**
+        * 聚合分析
+        */
+    //1.聚合品牌
+    TermsAggregationBuilder brand_agg = AggregationBuilders.terms(&quot;brand_agg&quot;);
+    brand_agg.field(&quot;brandId&quot;).size(50);
+    // 品牌子聚合（brandName, brandImg）
+    brand_agg.subAggregation(AggregationBuilders.terms(&quot;brand_name_agg&quot;).field(&quot;brandName&quot;).size(1));
+    brand_agg.subAggregation(AggregationBuilders.terms(&quot;brand_img_agg&quot;).field(&quot;brandImg&quot;).size(1));
+    sourceBuilder.aggregation(brand_agg);
+
+    //2.聚合分类信息
+    TermsAggregationBuilder catalog_agg = AggregationBuilders.terms(&quot;catalog_agg&quot;);
+    catalog_agg.field(&quot;catalogId&quot;).size(20);
+    // 子聚合
+    catalog_agg.subAggregation(AggregationBuilders.terms(&quot;catalog_name_agg&quot;).field(&quot;catalogName&quot;).size(1));
+    sourceBuilder.aggregation(catalog_agg);
+
+    //3. 属性聚合
+    /**
+        * attr_agg
+        *  |_ attr_id_agg  所有属性的id
+        *      |_attr_name_agg 属性名
+        *      |_attr_value_agg 属性的所有可能取值
+        */
+    NestedAggregationBuilder attr_agg = AggregationBuilders.nested(&quot;attr_agg&quot;, &quot;attrs&quot;);
+    TermsAggregationBuilder attr_id_agg = AggregationBuilders.terms(&quot;attr_id_agg&quot;).field(&quot;attrs.attrId&quot;);
+
+    attr_id_agg.subAggregation(AggregationBuilders.terms(&quot;attr_name_agg&quot;).field(&quot;attrs.attrName&quot;).size(1));
+    attr_id_agg.subAggregation(AggregationBuilders.terms(&quot;attr_value_agg&quot;).field(&quot;attrs.attrValue&quot;).size(50));
+
+    attr_agg.subAggregation(attr_id_agg);
+    sourceBuilder.aggregation(attr_agg);
+
+    String s = sourceBuilder.toString();
+    System.out.println(&quot;DSL语句：&quot; + s);
+    SearchRequest searchRequest = new SearchRequest(new String[]{EsConstant.PRODUCT_INDEX}, sourceBuilder);
+    return searchRequest;
+}
+</code></pre>
+<h3 id="返回结果的封装">返回结果的封装</h3>
+<p>最终封装成我们自定义的VO：SearchResult，封装属性例子如下：<br>
+<img src="https://dxone1.github.io//post-images/1637314023037.png" alt="" loading="lazy"></p>
+<pre><code class="language-java">/**
+    * 构建结果数据
+    * @param response
+    * @return
+    */
+private SearchResult buildSearchResult(SearchResponse response, SearchParam param) {
+
+    SearchResult result = new SearchResult();
+    SearchHits hits = response.getHits();
+
+    /******来自查询信息*******/
+    ////1. 封装查询的所有商品
+    List&lt;SkuEsModel&gt; products = new ArrayList&lt;&gt;();
+    if(hits.getHits() != null &amp;&amp; hits.getHits().length &gt; 0) {
+        for (SearchHit hit : hits.getHits()) {
+            String sourceAsString = hit.getSourceAsString();
+            SkuEsModel esModel = JSON.parseObject(sourceAsString, SkuEsModel.class);
+            if(!StringUtils.isEmpty(param.getKeyword())) {
+                HighlightField skuTitle = hit.getHighlightFields().get(&quot;skuTitle&quot;);
+                String string = skuTitle.getFragments()[0].string();
+                esModel.setSkuTitle(string);
+            }
+            products.add(esModel);
+        }
+    }
+    result.setProducts(products);
+
+    /******来自聚合信息*******/
+    Aggregations aggregations = response.getAggregations();
+    //2. 封装所有商品涉及的所有属性
+    ParsedNested attr_agg = aggregations.get(&quot;attr_agg&quot;);
+    // 属性id聚合
+    ParsedLongTerms attr_id_agg = attr_agg.getAggregations().get(&quot;attr_id_agg&quot;);
+    List&lt;SearchResult.AttrVo&gt; attrVos = new ArrayList&lt;&gt;();
+    for (Terms.Bucket bucket : attr_id_agg.getBuckets()) {
+        SearchResult.AttrVo attrVo = new SearchResult.AttrVo();
+        // 属性id
+        long attrId = bucket.getKeyAsNumber().longValue();
+        // 属性名
+        ParsedStringTerms attr_name_agg = bucket.getAggregations().get(&quot;attr_name_agg&quot;);
+        String attrName = attr_name_agg.getBuckets().get(0).getKeyAsString();
+        // 属性所有值
+        ParsedStringTerms attr_value_agg = bucket.getAggregations().get(&quot;attr_value_agg&quot;);
+        List&lt;String&gt; attrValues = attr_value_agg.getBuckets().stream().map(item -&gt; {
+            String keyAsString = item.getKeyAsString();
+            return keyAsString;
+        }).collect(Collectors.toList());
+
+        attrVo.setAttrId(attrId);
+        attrVo.setAttrName(attrName);
+        attrVo.setAttrValue(attrValues);
+
+        attrVos.add(attrVo);
+    }
+    result.setAttrs(attrVos);
+
+    //3. 封装所有商品涉及的所有品牌信息
+    ParsedLongTerms brand_agg = aggregations.get(&quot;brand_agg&quot;);
+    List&lt;SearchResult.BrandVo&gt; brandVos = new ArrayList&lt;&gt;();
+    for (Terms.Bucket bucket : brand_agg.getBuckets()) {
+        SearchResult.BrandVo brandVo = new SearchResult.BrandVo();
+        // 品牌id
+        long brandId = bucket.getKeyAsNumber().longValue();
+        // 品牌名字
+        ParsedStringTerms brand_name_agg = bucket.getAggregations().get(&quot;brand_name_agg&quot;);
+        String brandName = brand_name_agg.getBuckets().get(0).getKeyAsString();
+        // 品牌img
+        ParsedStringTerms brand_img_agg = bucket.getAggregations().get(&quot;brand_img_agg&quot;);
+        String brandImg = brand_img_agg.getBuckets().get(0).getKeyAsString();
+
+        brandVo.setBrandId(brandId);
+        brandVo.setBrandName(brandName);
+        brandVo.setBrandImg(brandImg);
+
+        brandVos.add(brandVo);
+    }
+    result.setBrands(brandVos);
+
+    //4. 封装所有商品涉及的所有分类
+    ParsedLongTerms catalog_agg = aggregations.get(&quot;catalog_agg&quot;);
+    List&lt;SearchResult.CatalogVo&gt; catalogVos = new ArrayList&lt;&gt;();
+    List&lt;? extends Terms.Bucket&gt; buckets = catalog_agg.getBuckets();
+    for (Terms.Bucket bucket : buckets) {
+        SearchResult.CatalogVo catalogVo = new SearchResult.CatalogVo();
+        // 分类id
+        String id = bucket.getKeyAsString();
+        catalogVo.setCatalogId(Long.parseLong(id));
+        // 分类名
+        ParsedStringTerms catalog_name_agg = bucket.getAggregations().get(&quot;catalog_name_agg&quot;);
+        String catalog_name = catalog_name_agg.getBuckets().get(0).getKeyAsString();
+        catalogVo.setCatalogName(catalog_name);
+        catalogVos.add(catalogVo);
+    }
+    result.setCatalogs(catalogVos);
+    /******来自查询结果*******/
+    //5. 分页信息
+    // 页数
+    result.setPageNum(param.getPageNum());
+    // 总记录数
+    long total = hits.getTotalHits().value;
+    result.setTotal(total);
+    //总页码
+    int totalPages = (int)(total + EsConstant.PRODUCT_PAGESIZE - 1) / EsConstant.PRODUCT_PAGESIZE;
+    result.setTotalPages(totalPages);
+    return result;
+}
+</code></pre>
+<p>调整动态页面的获取，可以得到这样的初步效果<br>
+<img src="https://dxone1.github.io//post-images/1637324209707.png" alt="" loading="lazy"><br>
+细化后可以通过点击拼串查询，查询逻辑在上方<br>
+<img src="https://dxone1.github.io//post-images/1637325978007.png" alt="" loading="lazy"><br>
+调整页面逻辑<br>
+<img src="https://dxone1.github.io//post-images/1637328422616.png" alt="" loading="lazy"><br>
+排序请求，通过在前端对应位置拼接排序的要求实现<br>
+<img src="https://dxone1.github.io//post-images/1637377710787.png" alt="" loading="lazy"><br>
+再实现价格区间和是否有货查询的前端逻辑<br>
+<img src="https://dxone1.github.io//post-images/1637381005577.png" alt="" loading="lazy"><br>
+面包屑导航<br>
+<img src="https://dxone1.github.io//post-images/1637409332795.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day12：使用缓存]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day12shi-yong-huan-cun/</id>
@@ -1719,285 +2069,6 @@ public PageUtils getNoRelationAttr(Map&lt;String, Object&gt; params, Long attrgr
 接口为：http://localhost:88/api/product/attrgroup/attr/relation<br>
 通过POST请求发送attrId和attrGroupId<br>
 <img src="https://dxone1.github.io//post-images/1636464956389.png" alt="" loading="lazy"></p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 day5：商品属性分组和关联同步]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day5/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day5/">
-        </link>
-        <updated>2021-11-08T03:13:59.000Z</updated>
-        <content type="html"><![CDATA[<h2 id="spu与sku">SPU与SKU</h2>
-<ol>
-<li>SPU： Standard Product Unit（标准化产品单元）<br>
-是商品信息聚合的最小单位， 是一组可复用、 易检索的标准化信息的集合， 该集合描述了一个产品的特性。</li>
-<li>SKU： Stock Keeping Unit（库存量单位）<br>
-即库存进出计量的基本单元， 可以是以件， 盒， 托盘等为单位。 SKU 是对于大型连锁超市DC（配送中心） 物流管理的一个必要的方法。 现在已经被引申为产品统一编号的简称， 每种产品均对应有唯一的 SKU 号。</li>
-</ol>
-<p>【例子】<br>
-iphoneX 是 SPU、 MI 8 是 SPU<br>
-iphoneX 64G 黑曜石 是 SKU<br>
-MI8 8+64G+黑色 是 SKU</p>
-<p><strong>开发相关</strong><br>
-基本属性【 规格参数】 与销售属性<br>
-每个分类下的商品共享规格参数， 与销售属性。 只是有些商品不一定要用这个分类下全部的属性；</p>
-<ul>
-<li>属性是以三级分类组织起来的</li>
-<li>规格参数中有些是可以提供检索的</li>
-<li>规格参数也是基本属性， 他们具有自己的分组</li>
-<li>属性的分组也是以三级分类组织起来的</li>
-<li>属性名确定的， 但是值是每一个商品不同来决定的</li>
-</ul>
-<p>即：规格参数 ==&gt; SPU   ||   销售属性（颜色、RAM等...） ==&gt; SKU</p>
-<p>属性表的设计：<br>
-<img src="https://dxone1.github.io//post-images/1636341899050.png" alt="" loading="lazy"><br>
-属性分组表：<br>
-<img src="https://dxone1.github.io//post-images/1636341955079.png" alt="" loading="lazy"><br>
-属性和分组的关联表：<br>
-<img src="https://dxone1.github.io//post-images/1636342006208.png" alt="" loading="lazy"><br>
-商品属性值表：<br>
-<img src="https://dxone1.github.io//post-images/1636342058067.png" alt="" loading="lazy"><br>
-spu和sku都有不同的表设计，总体的表如下：<br>
-<img src="https://dxone1.github.io//post-images/1636342149155.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636342329921.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636342581115.png" alt="" loading="lazy"></p>
-<h2 id="商品属性分组">商品属性分组</h2>
-<p>三级分类树在以后的项目中都有用处，所以先抽取出三级分类树展示模块<br>
-至于右边的表格直接使用代码生成器快速生成的模板即可<br>
-页面效果如下：<br>
-<img src="https://dxone1.github.io//post-images/1636356452967.png" alt="" loading="lazy"><br>
-抽取的公共三级分类树是子组件，我们希望当点击子组件时父组件可以感知，使用vue的事件机制可以达成。子组件给父组件发送一个事件，携带数据。element-ui定义的Tree有这样一个组件<br>
-<img src="https://dxone1.github.io//post-images/1636356664260.png" alt="" loading="lazy"></p>
-<ol>
-<li>在子组件中绑定node-click事件</li>
-</ol>
-<pre><code class="language-js">&lt;el-tree
-    ...
-    @node-click=&quot;nodeclick&quot;
-&gt;
-&lt;/el-tree&gt;
-
-nodeclick(data, node, component) {
-    console.log(&quot;子组件category被点击,&quot;,data, node, component);
-    // 向父组件发送事件
-    this.$emit(&quot;tree-node-click&quot;, data, node, component );
-}
-</code></pre>
-<ol start="2">
-<li>父组件标记感知的事件并绑定方法</li>
-</ol>
-<pre><code class="language-js">&lt;category @tree-node-click=&quot;treenodeClick&quot;&gt;&lt;/category&gt;
-</code></pre>
-<ol start="3">
-<li>后端逻辑<br>
-发送给后端获取该category的表，后端写相关的controller。本项目使用脚手架工程提供了一个sql封装，后端的Service层的实现如下。作用，传入一个params表和一个catelogId，后者必须匹配，前者的key字段和&quot;attr_group_id&quot;严格匹配，与&quot;attr_group_name&quot;模糊匹配</li>
-</ol>
-<pre><code class="language-java"> @Override
-public PageUtils queryPage(Map&lt;String, Object&gt; params, Long catelogId) {
-    if (catelogId == 0) {
-        IPage&lt;AttrGroupEntity&gt; page = this.page(new Query&lt;AttrGroupEntity&gt;().getPage(params),
-                new QueryWrapper&lt;AttrGroupEntity&gt;());
-        return new PageUtils(page);
-    } else {
-        String key = (String) params.get(&quot;key&quot;);
-        // select * from attr_group where catelog_id = ? and (attr_group = key or attr_name like %key%)
-        QueryWrapper&lt;AttrGroupEntity&gt; wrapper = new QueryWrapper&lt;AttrGroupEntity&gt;().eq(&quot;catelog_id&quot;, catelogId);
-        if(!StringUtils.isEmpty(key)) {
-            wrapper.and((obj) -&gt; {
-                obj.eq(&quot;attr_group_id&quot;, key).or().like(&quot;attr_group_name&quot;, key);
-            });
-        }
-        IPage&lt;AttrGroupEntity&gt; page = this.page(new Query&lt;AttrGroupEntity&gt;().getPage(params),
-                wrapper);
-        return new PageUtils(page);
-    }
-}
-</code></pre>
-<ol start="4">
-<li>前端请求方法</li>
-</ol>
-<pre><code class="language-js">// 感知树节点被点击
-treenodeClick(data, node, component) {
-    console.log(&quot;attrgroup感知到category的节点被点击&quot;, data, node, component);
-    console.log(&quot;点击的菜单id为&quot;, data.catId);
-    // 只有第三级分类才查询
-    if (node.level == 3) {
-        this.catId = data.catId;
-        this.getDataList();
-    }
-},
-</code></pre>
-<h2 id="属性分组新增修改功能">属性分组新增/修改功能</h2>
-<p>只需为 Cascader 的options属性指定选项数组即可渲染出一个级联选择器。通过props.expandTrigger可以定义展开子级菜单的触发方式。<br>
-给后端的children属性添加一个注解，使得其不为空时才通过json返回</p>
-<pre><code class="language-java">/**
-* 子分类
-*/
-@JsonInclude(JsonInclude.Include.NON_EMPTY)
-@TableField(exist = false)
-private List&lt;CategoryEntity&gt; children;
-</code></pre>
-<p>前端请求添加即可<br>
-修改功能涉及到回显，需要在后端回显添加一个数组属性</p>
-<pre><code class="language-java">@TableField(exist = false)
-private Long[] catelogPath;
-</code></pre>
-<p>查找Path的方法：</p>
-<pre><code class="language-java">@Override
-public Long[] findCatelogPath(Long catelogId) {
-    List&lt;Long&gt; paths = new ArrayList&lt;&gt;();
-    findParentPath(catelogId, paths);
-    return paths.toArray(new Long[paths.size()]);
-}
-
-private void findParentPath(Long catelogId, List&lt;Long&gt; paths) {
-    CategoryEntity byId = this.getById(catelogId);
-    if(byId.getParentCid() != 0) {
-        findParentPath(byId.getParentCid(), paths);
-    }
-    // 后序遍历
-    paths.add(catelogId);
-}
-</code></pre>
-<p>效果如图：<br>
-<img src="https://dxone1.github.io//post-images/1636364145316.png" alt="" loading="lazy"><br>
-前端回显之后注意需要在对话框关闭后回调重置路径</p>
-<pre><code class="language-js">// 关闭对话框，回调清除diaglogPath
-dialogClosed(){
-    this.dataForm.catelogPath = [];
-}
-</code></pre>
-<p>对话框的写法：</p>
-<pre><code class="language-js">&lt;el-dialog
-    :title=&quot;!dataForm.attrGroupId ? '新增' : '修改'&quot;
-    :close-on-click-modal=&quot;false&quot;
-    :visible.sync=&quot;visible&quot;
-    @closed=&quot;dialogClosed&quot;
-&gt;
-    &lt;el-form
-      :model=&quot;dataForm&quot;
-      :rules=&quot;dataRule&quot;
-      ref=&quot;dataForm&quot;
-      @keyup.enter.native=&quot;dataFormSubmit()&quot;
-      label-width=&quot;80px&quot;
-    &gt;
-      &lt;el-form-item label=&quot;组名&quot; prop=&quot;attrGroupName&quot;&gt;
-        &lt;el-input
-          v-model=&quot;dataForm.attrGroupName&quot;
-          placeholder=&quot;组名&quot;
-        &gt;&lt;/el-input&gt;
-      &lt;/el-form-item&gt;
-      &lt;el-form-item label=&quot;排序&quot; prop=&quot;sort&quot;&gt;
-        &lt;el-input v-model=&quot;dataForm.sort&quot; placeholder=&quot;排序&quot;&gt;&lt;/el-input&gt;
-      &lt;/el-form-item&gt;
-      &lt;el-form-item label=&quot;描述&quot; prop=&quot;descript&quot;&gt;
-        &lt;el-input v-model=&quot;dataForm.descript&quot; placeholder=&quot;描述&quot;&gt;&lt;/el-input&gt;
-      &lt;/el-form-item&gt;
-      &lt;el-form-item label=&quot;组图标&quot; prop=&quot;icon&quot;&gt;
-        &lt;el-input v-model=&quot;dataForm.icon&quot; placeholder=&quot;组图标&quot;&gt;&lt;/el-input&gt;
-      &lt;/el-form-item&gt;
-      &lt;el-form-item label=&quot;所属分类id&quot; prop=&quot;catelogId&quot;&gt;
-        &lt;!-- &lt;el-input v-model=&quot;dataForm.catelogId&quot; placeholder=&quot;所属分类id&quot;&gt;&lt;/el-input&gt; --&gt;
-        &lt;el-cascader
-          v-model=&quot;dataForm.catelogPath&quot;
-          :options=&quot;categorys&quot;
-          :props=&quot;props&quot;
-          filterable
-        &gt;&lt;/el-cascader&gt;
-      &lt;/el-form-item&gt;
-    &lt;/el-form&gt;
-    &lt;span slot=&quot;footer&quot; class=&quot;dialog-footer&quot;&gt;
-      &lt;el-button @click=&quot;visible = false&quot;&gt;取消&lt;/el-button&gt;
-      &lt;el-button type=&quot;primary&quot; @click=&quot;dataFormSubmit()&quot;&gt;确定&lt;/el-button&gt;
-    &lt;/span&gt;
-&lt;/el-dialog&gt;
-</code></pre>
-<h2 id="品牌管理功能细化">品牌管理功能细化</h2>
-<p>希望能够正确显示分页并提供品牌管理的查询功能<br>
-<img src="https://dxone1.github.io//post-images/1636371869531.png" alt="" loading="lazy"><br>
-根据Mybatis-plus的文档，只需要在IOC容器中添加一个PaginationInterceptor即可</p>
-<pre><code class="language-java">@Configuration
-@EnableTransactionManagement
-@MapperScan(&quot;com.dong.mall.product.dao&quot;)
-public class MyBatisConfig {
-    // 引入分页插件
-    // 旧版
-    @Bean
-    public PaginationInterceptor paginationInterceptor() {
-        PaginationInterceptor paginationInterceptor = new PaginationInterceptor();
-        // 设置请求的页面大于最大页后操作， true调回到首页，false 继续请求  默认false
-         paginationInterceptor.setOverflow(true);
-        // 设置最大单页限制数量，默认 500 条，-1 不受限制
-         paginationInterceptor.setLimit(100);
-        // 开启 count 的 join 优化,只针对部分 left join
-        paginationInterceptor.setCountSqlParser(new JsqlParserCountOptimize(true));
-        return paginationInterceptor;
-    }
-}
-</code></pre>
-<p><strong>自行编写了商品系统的：分类维护、品牌管理和属性分组功能，之后的前端代码不再重复写</strong><br>
-考虑品牌和商品分类的对应：是一种多对多的关系，所以使用一张中间表处理业务。给品牌管理添加关联分类功能，是一种多对多的关系。<br>
-<img src="https://dxone1.github.io//post-images/1636373493726.png" alt="" loading="lazy"><br>
-需要编写如下接口：</p>
-<ul>
-<li>查询所有当前品牌关联的分类</li>
-<li>添加新的关联分类</li>
-<li>删除关联分类<br>
-在CategoryBrandRelationController这里写业务</li>
-</ul>
-<pre><code class="language-java">/**
-    * 获取当前品牌关联的所有的分类的列表
-    */
-@RequestMapping(&quot;/catelog/list&quot;)
-public R cateloglist(@RequestParam(&quot;brandId&quot;) Long brandId) {
-    List&lt;CategoryBrandRelationEntity&gt; data = categoryBrandRelationService.list(
-            new QueryWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;brand_id&quot;, brandId)
-    );
-    return R.ok().put(&quot;data&quot;, data);
-}
-
-// 重写了能保存品牌和分类名的service方法
-@Override
-public void saveDetail(CategoryBrandRelationEntity categoryBrandRelation) {
-    Long brandId = categoryBrandRelation.getBrandId();
-    Long catelogId = categoryBrandRelation.getCatelogId();
-    // 先查询品牌名字和分类名
-    BrandEntity brandEntity = brandDao.selectById(brandId);
-    CategoryEntity categoryEntity = categoryDao.selectById(catelogId);
-    // 设置字段再返回
-    categoryBrandRelation.setBrandName(brandEntity.getName());
-    categoryBrandRelation.setCatelogName(categoryEntity.getName());
-    this.save(categoryBrandRelation);
-}
-</code></pre>
-<p>效果如图：<br>
-<img src="https://dxone1.github.io//post-images/1636374659495.png" alt="" loading="lazy"><br>
-然而，之前的品牌更新代码代码只是在品牌表中进行增删改查，如果实际业务表格修改就会有很大的问题，因为关联表是有冗余条目存在的，必须同步，于是采用如下操作：重写品牌的update的逻辑。而新增则在关联发生之前不需要修改。</p>
-<pre><code class="language-java">// brandServiceImpl.java
-@Override
-public void updateDetail(BrandEntity brand) {
-    // 保证冗余字段的数据一致
-    this.updateById(brand);
-    // 品牌名发生修改，需要修改关联表中的数据
-    if(!StringUtils.isEmpty(brand.getName())) {
-        // 品牌和类别关联表
-        categoryBrandRelationService.updateBrand(brand.getBrandId(), brand.getName());
-        //TODO 更新其他关联
-    }
-}
-// categoryBrandRelationService.updateBrand()
-@Override
-public void updateBrand(Long brandId, String name) {
-    CategoryBrandRelationEntity relationEntity = new CategoryBrandRelationEntity();
-    relationEntity.setBrandId(brandId);
-    relationEntity.setBrandName(name);
-    this.update(relationEntity, new UpdateWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;brand_id&quot;, brandId));
-}
-</code></pre>
-<p>测试：将品牌改为华为2，关联分类中的也变化<br>
-<img src="https://dxone1.github.io//post-images/1636375664862.png" alt="" loading="lazy"><br>
-同理，分类的修改也要修改关联表项目<br>
-最后，注意到同时修改两张表，要么同时成功，要么同时失败，需要使用事务保证一致性。在MybatisConfig配置类已经使用@EnableTransactionManagement开启了事务管理，只需要在方法上使用@Transactiona添加事务即可</p>
 ]]></content>
     </entry>
 </feed>
