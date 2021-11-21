@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-20T11:56:05.781Z</updated>
+    <updated>2021-11-21T13:55:12.467Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,172 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day14：异步处理]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day14yi-bu-chu-li/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day14yi-bu-chu-li/">
+        </link>
+        <updated>2021-11-20T11:58:30.000Z</updated>
+        <content type="html"><![CDATA[<p>实现异步处理的商品详情页功能</p>
+<h2 id="来源">来源</h2>
+<p>商品详情页往往需要远程调用，数据库查询等多种操作。在IO操作上阻塞显然不是好的主意。于是需要进行异步编排。具体的，有如下渲染和获取步骤：</p>
+<ol>
+<li>商品详情</li>
+<li>同种商品不同的SKU信息</li>
+<li>SPU信息</li>
+<li>库存信息</li>
+<li>优惠信息</li>
+<li>...<br>
+可以看到找出哪一种商品是最先需要做的，可以使用ComplateableFuture实现异步任务的同步和管理。</li>
+</ol>
+<h2 id="实现">实现</h2>
+<p>同样配置好一个item.mall.com的本地Hosts，因为Nginx已经匹配了*.mall.com的路径跳转至网关，所以只需要配置网关路由即可。</p>
+<ol>
+<li>编写一个Controller，返回跳转到item页面</li>
+<li>封装一个SkuItemVo的对象，用于封装需要返回给页面的数据</li>
+</ol>
+<pre><code class="language-java">@Data
+public class SkuItemVo {
+    //基本sku信息
+    SkuInfoEntity info;
+    //sku的图片
+    List&lt;SkuImagesEntity&gt; images;
+    //sku的各种销售属性的集合
+    List&lt;SkuItemSaleAttrVo&gt; saleAttr;
+    //spu的商品介绍
+    SpuInfoDescEntity desp;
+    //spu的基本信息分组集合
+    List&lt;SpuItemAttrGroupVo&gt; groupAttrs;
+
+    @Data
+    public static class SkuItemSaleAttrVo {
+        private Long attrId;
+        private String attrName;
+        private List&lt;String&gt; attrValues;
+    }
+
+    @Data
+    public static class SpuItemAttrGroupVo {
+        private String groupName;
+        private List&lt;SpuBaseAttrVo&gt; attrs;
+    }
+
+    @Data
+    public static class SpuBaseAttrVo {
+        private Long attrId;
+        private String attrValues;
+    }
+}
+</code></pre>
+<ol start="3">
+<li>封装这个对象的业务代码编写<br>
+业务上都是与之前的大同小异，关键在于异步编排<br>
+异步之前也可以实现业务，如下：</li>
+</ol>
+<pre><code class="language-java">@Override
+public SkuItemVo item(Long skuId) {
+    SkuItemVo skuItemVo = new SkuItemVo();
+    
+    // 1. pms_sku_inf
+    SkuInfoEntity info = this.getById(skuId);
+    Long catalogId = info.getCatalogId();
+    Long spuId = info.getSpuId();
+    skuItemVo.setInfo(info);
+
+    // 2. pms_sku_images
+    List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
+    skuItemVo.setImages(images);
+
+    // 3. spu的销售属性组合
+    List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(spuId);
+    skuItemVo.setSaleAttr(saleAttrVos);
+
+    // 4. spu的介绍
+    SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(spuId);
+    skuItemVo.setDesp(spuInfoDesc);
+
+    // 5. spu的规格参数信息
+    List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(spuId, catalogId);
+    skuItemVo.setGroupAttrs(attrGroupVos);
+
+    return skuItemVo;
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1637501476084.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637501479800.png" alt="" loading="lazy"><br>
+<strong>使用异步方式进行</strong><br>
+1，2相互独立<br>
+3，4，5依赖于1的查询结果</p>
+<ol>
+<li>首先放一个单例的可配置线程池</li>
+</ol>
+<pre><code class="language-java">@ConfigurationProperties(prefix = &quot;mall.thread&quot;)
+@Data
+public class ThreadPollConfigProperties {
+    private Integer coreSize;
+    private Integer maxSize;
+    private Integer keepAliveTime;
+}
+
+/********************/
+@EnableConfigurationProperties(ThreadPollConfigProperties.class)
+@Configuration
+public class MyThreadConfig {
+    @Bean
+    public ThreadPoolExecutor threadPoolExecutor(ThreadPollConfigProperties pool) {
+        return new ThreadPoolExecutor(pool.getCoreSize(),
+                pool.getMaxSize(),
+                pool.getKeepAliveTime(),
+                TimeUnit.SECONDS,
+                new LinkedBlockingDeque&lt;&gt;(100000),
+                Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.AbortPolicy());
+    }
+}
+</code></pre>
+<p>修改为异步方式执行后端逻辑</p>
+<pre><code class="language-java">@Override
+public SkuItemVo item(Long skuId) throws ExecutionException, InterruptedException {
+    SkuItemVo skuItemVo = new SkuItemVo();
+
+    CompletableFuture&lt;SkuInfoEntity&gt; infoFuture = CompletableFuture.supplyAsync(() -&gt; {
+        // 1. pms_sku_info
+        SkuInfoEntity info = getById(skuId);
+        skuItemVo.setInfo(info);
+        return info;
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; saleAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 3. spu的销售属性组合
+        List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(res.getSpuId());
+        skuItemVo.setSaleAttr(saleAttrVos);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; descFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 4. spu的介绍
+        SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(res.getSpuId());
+        skuItemVo.setDesp(spuInfoDesc);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; baseAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 5. spu的规格参数信息
+        List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(res.getSpuId(), res.getCatalogId());
+        skuItemVo.setGroupAttrs(attrGroupVos);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; imagesFuture = CompletableFuture.runAsync(() -&gt; {
+        // 2. pms_sku_images
+        List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
+        skuItemVo.setImages(images);
+    }, executor);
+
+    CompletableFuture.allOf(saleAttrFuture, descFuture, baseAttrFuture, imagesFuture).get();
+
+    return skuItemVo;
+}
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城服务 day13：检索服务]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/</id>
@@ -1809,266 +1975,6 @@ public void saveSpuInfo(SpuSaveVo vo) {
     }
 </code></pre>
 <p>调试需要花费很大的心思，而且并不足够健壮。</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 day6：平台参数]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day6ping-tai-can-shu/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day6ping-tai-can-shu/">
-        </link>
-        <updated>2021-11-09T03:33:51.000Z</updated>
-        <content type="html"><![CDATA[<p>在平台属性功能，属性和分组需要相互关联。每个分组可能关联多个属性。规格参数功能模块会录入各种基础的属性。本日的项目目标是完成平台属性和属性的分组的相关的功能。属性分为规格参数和销售属性两类。分类和分组相互关联，每个属性会属于某个属性分组</p>
-<h2 id="规格参数分组">规格参数分组</h2>
-<p>规格参数是一种属性，属性属于某个分组。<br>
-<img src="https://dxone1.github.io//post-images/1636429846172.png" alt="" loading="lazy"><br>
-之前的工作中，品牌和分类已经通过中间表进行了多对多的相互关联。这里的参数属于某个属性分组，也通过一个中间表记录了关系。<br>
-<img src="https://dxone1.github.io//post-images/1636429973290.png" alt="" loading="lazy"></p>
-<ol>
-<li>新增规格参数（需要指定其属性分组和分类）<br>
-通过代码生成器生成的项目，如果调用属性的save功能则只会在pms_attr中保存，而不会在pms_attr_attrgroup_relation中保存关联关系，需要重写该方法。<br>
-在项目包下写一个vo包，将值对象（视图对象）封装起来<br>
-用处：接收页面传递来的数据，封装对象。将业务处理完成的对象，封装成页面要用的数据。<br>
-编写一个attrvo的实体类，封装属性拥有的所有内容<br>
-逻辑就是实体类的分层，vo只负责和页面交互，entity只负责和dao打交道。</li>
-</ol>
-<pre><code class="language-java">// AttrService
-@Transactional
-@Override
-public void saveAttr(AttrVo attr) {
-    // 保存基本数据
-    // 先使用Entity将页面中的属性抽取出需要保存到数据库中的部分保存
-    AttrEntity attrEntity = new AttrEntity();
-    // 将attr中的属性拷贝到attrEntity中
-    BeanUtils.copyProperties(attr, attrEntity);
-    this.save(attrEntity);
-
-    // 保存到关联关系中
-    AttrAttrgroupRelationEntity relationEntity = new AttrAttrgroupRelationEntity();
-    // 两个需要提交
-    // 1. 属性分组id
-    // 2. 属性id
-    // 也是都从页面中拿
-    relationEntity.setAttrGroupId(attr.getAttrGroupId());
-    relationEntity.setAttrId(attrEntity.getAttrId());
-    // 保存之后attrId也有了
-    attrAttrgroupRelationDao.insert(relationEntity);
-}
-</code></pre>
-<ol start="2">
-<li>查询规格参数<br>
-通过接口<code>/product/attr/base/list/225</code>访问。一样编写查询规格参数的特殊方法，原理和之前的属性分组一致，严格匹配属性id或者模糊匹配属性名。</li>
-</ol>
-<pre><code class="language-java">@Override
-public PageUtils queryBaseAttrPage(Map&lt;String, Object&gt; params, Long catelogId) {
-    QueryWrapper&lt;AttrEntity&gt; queryWrapper = new QueryWrapper&lt;&gt;();
-    //if(StringUtils)
-
-    if(catelogId != 0) {
-        queryWrapper.eq(&quot;catelog_id&quot;, catelogId);
-    }
-
-    String key = (String) params.get(&quot;key&quot;);
-    if(!StringUtils.isEmpty(key)) {
-        queryWrapper.and((wrapper) -&gt; {
-            wrapper.eq(&quot;attr_id&quot;, key).or().like(&quot;attr_name&quot;, key);
-        });
-    }
-
-    IPage&lt;AttrEntity&gt; page = this.page(
-            new Query&lt;AttrEntity&gt;().getPage(params),
-            queryWrapper
-    );
-    return null;
-}
-</code></pre>
-<p>注意返回需要有所属分类和分组的名字，也需要通过vo返回。重新编写查询逻辑</p>
-<pre><code class="language-java">@Override
-public PageUtils queryBaseAttrPage(Map&lt;String, Object&gt; params, Long catelogId) {
-    QueryWrapper&lt;AttrEntity&gt; queryWrapper = new QueryWrapper&lt;&gt;();
-    //if(StringUtils)
-
-    if(catelogId != 0) {
-        queryWrapper.eq(&quot;catelog_id&quot;, catelogId);
-    }
-
-    String key = (String) params.get(&quot;key&quot;);
-    if(!StringUtils.isEmpty(key)) {
-        queryWrapper.and((wrapper) -&gt; {
-            wrapper.eq(&quot;attr_id&quot;, key).or().like(&quot;attr_name&quot;, key);
-        });
-    }
-
-    IPage&lt;AttrEntity&gt; page = this.page(
-            new Query&lt;AttrEntity&gt;().getPage(params),
-            queryWrapper
-    );
-    List&lt;AttrEntity&gt; records = page.getRecords();
-    List&lt;AttrRespVo&gt; respVos = records.stream().map(attrEntity -&gt; {
-        AttrRespVo attrRespVo = new AttrRespVo();
-        BeanUtils.copyProperties(attrEntity, attrRespVo);
-        // 设置分类分组名
-        AttrAttrgroupRelationEntity relationEntity = attrAttrgroupRelationDao.selectOne(new QueryWrapper&lt;AttrAttrgroupRelationEntity&gt;()
-                .eq(&quot;attr_id&quot;, attrEntity.getAttrId()));
-        if (relationEntity != null) {
-            AttrGroupEntity attrGroupEntity = attrGroupDao.selectById(relationEntity.getAttrGroupId());
-            attrRespVo.setGroupName(attrGroupEntity.getAttrGroupName());
-        }
-        CategoryEntity categoryEntity = categoryDao.selectById(attrEntity.getCatelogId());
-        if (categoryEntity != null) {
-            attrRespVo.setCatelogName(categoryEntity.getName());
-        }
-
-        return attrRespVo;
-    }).collect(Collectors.toList());
-
-    PageUtils pageUtils = new PageUtils(page);
-    pageUtils.setList(respVos);
-    
-    return pageUtils;
-}
-</code></pre>
-<ol start="3">
-<li>修改属性需要提供分类路径和分组的回显</li>
-</ol>
-<pre><code class="language-java">@Override
-public AttrRespVo getAttrInfo(Long attrId) {
-    AttrRespVo attrRespVo = new AttrRespVo();
-
-    AttrEntity attrEntity = this.getById(attrId);
-    BeanUtils.copyProperties(attrEntity, attrRespVo);
-    // 设置分组id
-    AttrAttrgroupRelationEntity relationEntity = attrAttrgroupRelationDao.selectOne(new QueryWrapper&lt;AttrAttrgroupRelationEntity&gt;().eq(&quot;attr_id&quot;, attrId));
-    if(relationEntity != null) {
-        attrRespVo.setAttrGroupId(relationEntity.getAttrGroupId());
-        // 设置分组信息
-        AttrGroupEntity attrGroupEntity = attrGroupDao.selectById(relationEntity.getAttrGroupId());
-        if(attrGroupEntity != null) {
-            attrRespVo.setGroupName(attrGroupEntity.getAttrGroupName());
-        }
-    }
-    // 设置分类信息:属性创建必须有名字
-    Long catelogId = attrEntity.getCatelogId();
-    Long[] catelogPath = categoryService.findCatelogPath(catelogId);
-    attrRespVo.setCatelogPath(catelogPath);
-    CategoryEntity categoryEntity = categoryDao.selectById(catelogId);
-    if(categoryEntity != null) {
-        attrRespVo.setCatelogName(categoryEntity.getName());
-    }
-    return attrRespVo;
-}
-</code></pre>
-<ol start="4">
-<li>因为有关联操作，所以必须使用vo提供更多的值进行关联修改</li>
-</ol>
-<pre><code class="language-java">@Transactional
-@Override
-public void updateAttr(AttrVo attr) {
-    AttrEntity attrEntity = new AttrEntity();
-    BeanUtils.copyProperties(attr, attrEntity);
-    this.updateById(attrEntity);
-
-    AttrAttrgroupRelationEntity relationEntity = new AttrAttrgroupRelationEntity();
-    relationEntity.setAttrGroupId(attr.getAttrGroupId());
-    relationEntity.setAttrId(attr.getAttrId());
-
-    Integer cnt = attrAttrgroupRelationDao.selectCount(new UpdateWrapper&lt;AttrAttrgroupRelationEntity&gt;().eq(&quot;attr_id&quot;, attr.getAttrId()));
-    if(cnt &gt; 0) {
-        // 1. 修改分组关联
-        attrAttrgroupRelationDao.update(relationEntity,
-                new UpdateWrapper&lt;AttrAttrgroupRelationEntity&gt;().eq(&quot;attr_id&quot;, attr.getAttrId()));
-    } else {
-        // 没有则创建关联的分组
-        attrAttrgroupRelationDao.insert(relationEntity);
-    }
-}
-</code></pre>
-<h2 id="销售属性和规格参数非常相似的业务逻辑">销售属性：和规格参数非常相似的业务逻辑</h2>
-<p><code>/product/attr/sale/list/0</code><br>
-可以在之前的controller和service上直接拓展，使得sql要求attr_type相同（销售属性或规格参数）。注意销售属性没有属性分组，不需要保存关联关系。<br>
-效果如下：<br>
-<img src="https://dxone1.github.io//post-images/1636457666897.png" alt="" loading="lazy"></p>
-<h2 id="分组关联规格参数">分组关联规格参数</h2>
-<p>规格参数属于基本信息，是SPU的部分，会和属性分组相互关联。本部分完成属性分组关联规格参数的功能。<br>
-<img src="https://dxone1.github.io//post-images/1636457883839.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636457934335.png" alt="" loading="lazy"></p>
-<ol>
-<li>分组关联属性查询展示<br>
-接口： http://localhost:88/api/product/attrgroup/{attrgroupId}/attr/relation?t=1636457954138</li>
-</ol>
-<pre><code class="language-java">/**
-    * 根据分组id查关联属性的属性名和可选值
-    * @param attrgroupId
-    * @return
-    */
-@Override
-public List&lt;AttrEntity&gt; getRelationAttr(Long attrgroupId) {
-    List&lt;AttrAttrgroupRelationEntity&gt; relationEntities = attrAttrgroupRelationDao.selectList(new QueryWrapper&lt;AttrAttrgroupRelationEntity&gt;().eq(&quot;attr_group_id&quot;, attrgroupId));
-    List&lt;Long&gt; attrIds = relationEntities.stream().map(attr -&gt; {
-        return attr.getAttrId();
-    }).collect(Collectors.toList());
-
-    Collection&lt;AttrEntity&gt; attrEntities = this.listByIds(attrIds);
-    return (List&lt;AttrEntity&gt;) attrEntities;
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1636458651627.png" alt="" loading="lazy"><br>
-2. 移除关联属性<br>
-接口：http://localhost:88/api/product/attrgroup/attr/relation/delete<br>
-POST: attrId和attrGroupId构造为请求参数<br>
-3. 也需要提供通过属性分组页面快速添加关联的属性的功能：<br>
-<strong>首先是显示出合理的可添加属性</strong><br>
-<img src="https://dxone1.github.io//post-images/1636460844427.png" alt="" loading="lazy"><br>
-已经关联过的不能显示了，需要查询哪些属性还可以添加到当前关联分组中。即本分类下的，还没有被其他属性分组关联过的属性<br>
-接口：http://localhost:88/api/product/attrgroup/1/noattr/relation?t=1636460932886&amp;page=1&amp;limit=10&amp;key=</p>
-<pre><code class="language-java">/**
-    * 获取当前分组中没有关联的所有属性
-    * 1.必须属于自己所属的分类
-    * 2.别的分组不能引用过
-    * @param params
-    * @param attrgroupId
-    * @return
-    */
-@Override
-public PageUtils getNoRelationAttr(Map&lt;String, Object&gt; params, Long attrgroupId) {
-    AttrGroupEntity attrGroupEntity = attrGroupDao.selectById(attrgroupId);
-    // 分类id
-    Long catelogId = attrGroupEntity.getCatelogId();
-    // 查当前分类下的其他分组
-    List&lt;AttrGroupEntity&gt; groupEntities = attrGroupDao.selectList(new QueryWrapper&lt;AttrGroupEntity&gt;().eq(&quot;catelog_id&quot;, catelogId));
-    List&lt;Long&gt; collect = groupEntities.stream().map(item -&gt; {
-        return item.getAttrGroupId();
-    }).collect(Collectors.toList());
-    // 查这些分组关联的属性
-    List&lt;AttrAttrgroupRelationEntity&gt; groupId = attrAttrgroupRelationDao.selectList(new QueryWrapper&lt;AttrAttrgroupRelationEntity&gt;().in(&quot;attr_group_id&quot;, collect));
-    List&lt;Long&gt; attrIds = groupId.stream().map(item -&gt; {
-        return item.getAttrId();
-    }).collect(Collectors.toList());
-    // 从当前分类所有属性中移除这些属性
-    // 首先必须是当前分类下的
-    // 其次排除当前分类下其他属性分组关联的属性
-    QueryWrapper&lt;AttrEntity&gt; queryWrapper = new QueryWrapper&lt;AttrEntity&gt;().eq(&quot;catelog_id&quot;, catelogId).eq(&quot;attr_type&quot;, ProductConstant.AttrEnum.ATTR_TYPE_BASE.getCode());
-    if(attrIds != null &amp;&amp; attrIds.size() &gt; 0) {
-        queryWrapper.notIn(&quot;attr_id&quot;, attrIds);
-    }
-
-    // 如果有key的话仍然按照id匹配，名字模糊查询
-    String key = (String) params.get(&quot;key&quot;);
-    if(!StringUtils.isEmpty(key)) {
-        queryWrapper.and((wrapper) -&gt; {
-            wrapper.eq(&quot;attr_id&quot;, key).or().like(&quot;attr_name&quot;, key);
-        });
-    }
-    // 返回按照分页查询
-    IPage&lt;AttrEntity&gt; page = this.page(new Query&lt;AttrEntity&gt;().getPage(params), queryWrapper);
-    PageUtils pageUtils = new PageUtils(page);
-
-    return pageUtils;
-}
-</code></pre>
-<p><strong>然后是添加关联的功能</strong><br>
-接口为：http://localhost:88/api/product/attrgroup/attr/relation<br>
-通过POST请求发送attrId和attrGroupId<br>
-<img src="https://dxone1.github.io//post-images/1636464956389.png" alt="" loading="lazy"></p>
 ]]></content>
     </entry>
 </feed>

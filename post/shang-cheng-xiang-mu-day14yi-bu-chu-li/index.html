@@ -1,0 +1,338 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day14：异步处理 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1637502901038">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day14：异步处理 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="实现异步处理的商品详情页功能
+来源
+商品详情页往往需要远程调用，数据库查询等多种操作。在IO操作上阻塞显然不是好的主意。于是需要进行异步编排。具体的，有如下渲染和获取步骤：
+
+商品详情
+同种商品不同的SKU信息
+SPU信息
+库存信息
+优惠信..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1637502901038" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day14：异步处理
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-20
+              </span>
+              <span>
+                4 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>实现异步处理的商品详情页功能</p>
+<h2 id="来源">来源</h2>
+<p>商品详情页往往需要远程调用，数据库查询等多种操作。在IO操作上阻塞显然不是好的主意。于是需要进行异步编排。具体的，有如下渲染和获取步骤：</p>
+<ol>
+<li>商品详情</li>
+<li>同种商品不同的SKU信息</li>
+<li>SPU信息</li>
+<li>库存信息</li>
+<li>优惠信息</li>
+<li>...<br>
+可以看到找出哪一种商品是最先需要做的，可以使用ComplateableFuture实现异步任务的同步和管理。</li>
+</ol>
+<h2 id="实现">实现</h2>
+<p>同样配置好一个item.mall.com的本地Hosts，因为Nginx已经匹配了*.mall.com的路径跳转至网关，所以只需要配置网关路由即可。</p>
+<ol>
+<li>编写一个Controller，返回跳转到item页面</li>
+<li>封装一个SkuItemVo的对象，用于封装需要返回给页面的数据</li>
+</ol>
+<pre><code class="language-java">@Data
+public class SkuItemVo {
+    //基本sku信息
+    SkuInfoEntity info;
+    //sku的图片
+    List&lt;SkuImagesEntity&gt; images;
+    //sku的各种销售属性的集合
+    List&lt;SkuItemSaleAttrVo&gt; saleAttr;
+    //spu的商品介绍
+    SpuInfoDescEntity desp;
+    //spu的基本信息分组集合
+    List&lt;SpuItemAttrGroupVo&gt; groupAttrs;
+
+    @Data
+    public static class SkuItemSaleAttrVo {
+        private Long attrId;
+        private String attrName;
+        private List&lt;String&gt; attrValues;
+    }
+
+    @Data
+    public static class SpuItemAttrGroupVo {
+        private String groupName;
+        private List&lt;SpuBaseAttrVo&gt; attrs;
+    }
+
+    @Data
+    public static class SpuBaseAttrVo {
+        private Long attrId;
+        private String attrValues;
+    }
+}
+</code></pre>
+<ol start="3">
+<li>封装这个对象的业务代码编写<br>
+业务上都是与之前的大同小异，关键在于异步编排<br>
+异步之前也可以实现业务，如下：</li>
+</ol>
+<pre><code class="language-java">@Override
+public SkuItemVo item(Long skuId) {
+    SkuItemVo skuItemVo = new SkuItemVo();
+    
+    // 1. pms_sku_inf
+    SkuInfoEntity info = this.getById(skuId);
+    Long catalogId = info.getCatalogId();
+    Long spuId = info.getSpuId();
+    skuItemVo.setInfo(info);
+
+    // 2. pms_sku_images
+    List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
+    skuItemVo.setImages(images);
+
+    // 3. spu的销售属性组合
+    List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(spuId);
+    skuItemVo.setSaleAttr(saleAttrVos);
+
+    // 4. spu的介绍
+    SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(spuId);
+    skuItemVo.setDesp(spuInfoDesc);
+
+    // 5. spu的规格参数信息
+    List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(spuId, catalogId);
+    skuItemVo.setGroupAttrs(attrGroupVos);
+
+    return skuItemVo;
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1637501476084.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1637501479800.png" alt="" loading="lazy"><br>
+<strong>使用异步方式进行</strong><br>
+1，2相互独立<br>
+3，4，5依赖于1的查询结果</p>
+<ol>
+<li>首先放一个单例的可配置线程池</li>
+</ol>
+<pre><code class="language-java">@ConfigurationProperties(prefix = &quot;mall.thread&quot;)
+@Data
+public class ThreadPollConfigProperties {
+    private Integer coreSize;
+    private Integer maxSize;
+    private Integer keepAliveTime;
+}
+
+/********************/
+@EnableConfigurationProperties(ThreadPollConfigProperties.class)
+@Configuration
+public class MyThreadConfig {
+    @Bean
+    public ThreadPoolExecutor threadPoolExecutor(ThreadPollConfigProperties pool) {
+        return new ThreadPoolExecutor(pool.getCoreSize(),
+                pool.getMaxSize(),
+                pool.getKeepAliveTime(),
+                TimeUnit.SECONDS,
+                new LinkedBlockingDeque&lt;&gt;(100000),
+                Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.AbortPolicy());
+    }
+}
+</code></pre>
+<p>修改为异步方式执行后端逻辑</p>
+<pre><code class="language-java">@Override
+public SkuItemVo item(Long skuId) throws ExecutionException, InterruptedException {
+    SkuItemVo skuItemVo = new SkuItemVo();
+
+    CompletableFuture&lt;SkuInfoEntity&gt; infoFuture = CompletableFuture.supplyAsync(() -&gt; {
+        // 1. pms_sku_info
+        SkuInfoEntity info = getById(skuId);
+        skuItemVo.setInfo(info);
+        return info;
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; saleAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 3. spu的销售属性组合
+        List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(res.getSpuId());
+        skuItemVo.setSaleAttr(saleAttrVos);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; descFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 4. spu的介绍
+        SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(res.getSpuId());
+        skuItemVo.setDesp(spuInfoDesc);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; baseAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
+        // 5. spu的规格参数信息
+        List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(res.getSpuId(), res.getCatalogId());
+        skuItemVo.setGroupAttrs(attrGroupVos);
+    }, executor);
+
+    CompletableFuture&lt;Void&gt; imagesFuture = CompletableFuture.runAsync(() -&gt; {
+        // 2. pms_sku_images
+        List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
+        skuItemVo.setImages(images);
+    }, executor);
+
+    CompletableFuture.allOf(saleAttrFuture, descFuture, baseAttrFuture, imagesFuture).get();
+
+    return skuItemVo;
+}
+</code></pre>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E6%9D%A5%E6%BA%90">来源</a></li>
+<li><a href="#%E5%AE%9E%E7%8E%B0">实现</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/">
+              <h3 class="post-title">
+                商城服务 day13：检索服务
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
