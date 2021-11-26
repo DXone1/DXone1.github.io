@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-21T13:55:12.467Z</updated>
+    <updated>2021-11-26T02:42:37.386Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,592 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day15：认证服务]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/">
+        </link>
+        <updated>2021-11-22T02:54:30.000Z</updated>
+        <content type="html"><![CDATA[<p>在登陆时需要通过认证服务获得可以使用部分业务功能的权限和用户的服务，这是系统必备的一项功能。一样的，首先创建一个认证的服务模块<code>mall-auth-server</code>，会集成社交登录，OAuth2.0，单点登录</p>
+<h2 id="环境搭建">环境搭建</h2>
+<ol>
+<li>编排服务的host地址和Nginx、网关的转发</li>
+<li>Nginx放置静态资源</li>
+<li>controller的设置</li>
+</ol>
+<h2 id="手机验证码服务">手机验证码服务</h2>
+<ol>
+<li>验证码倒计时功能<br>
+手机验证码遵循：发送验证码 -&gt; 倒计时 -&gt; 再次可以发送验证码的流程，实现使用js的倒计时器，当点击发送验证码时会将文本替换为<code>(倒计时时间) + 秒后可以再次发送</code>，同时标记一个<code>disabled</code>的class防止产生多个倒计时器。当倒计时到0时重置文本和最大倒计时。倒计时器一秒触发一次。</li>
+</ol>
+<pre><code class="language-js">$(function () {
+    $(&quot;#sendCode&quot;).click(function () {
+        //1.发送验证码
+        // TODO
+        //2.倒计时
+        if(!$(this).hasClass(&quot;disabled&quot;)) {
+            timeoutChangeStyle();
+        }
+    });
+})
+
+var num = 60;
+function timeoutChangeStyle() {
+    $(&quot;#sendCode&quot;).attr(&quot;class&quot;, &quot;disabled&quot;);
+    if(num == 0) {
+        $(&quot;#sendCode&quot;).text(&quot;发送验证码&quot;);
+        num = 60;
+        $(&quot;#sendCode&quot;).attr(&quot;class&quot;, &quot;&quot;);
+    } else {
+        var str = num+&quot;秒后可以再次发送&quot;;
+        $(&quot;#sendCode&quot;).text(str);
+        num--;
+        setTimeout(&quot;timeoutChangeStyle()&quot;,1000);
+    }
+}
+</code></pre>
+<p>使用viewController实现视图解析跳转</p>
+<pre><code class="language-java">@Configuration
+public class MallWebConfig implements WebMvcConfigurer {
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addViewController(&quot;/login.html&quot;).setViewName(&quot;login&quot;);
+        registry.addViewController(&quot;/reg.html&quot;).setViewName(&quot;reg&quot;);        
+    }
+}
+</code></pre>
+<h2 id="短信验证码服务">短信验证码服务</h2>
+<p>先在阿里云上购买一个短信接口服务，然后调试完成短信发送功能</p>
+<pre><code class="language-java">@ConfigurationProperties(prefix = &quot;spring.cloud.alicloud.sms&quot;)
+@Data
+@Component
+public class SmsComponent {
+
+    private String host;
+    private String path;
+    private String skin;
+    private String appcode;
+
+    public void sendSmsCode(String phone, String code) {
+        String method = &quot;GET&quot;;
+        System.out.println(&quot;请先替换成自己的AppCode&quot;);
+        Map&lt;String, String&gt; headers = new HashMap&lt;String, String&gt;();
+        headers.put(&quot;Authorization&quot;, &quot;APPCODE &quot; + appcode); //格式为:Authorization:APPCODE 83359fd73fe11248385f570e3c139xxx
+        Map&lt;String, String&gt; querys = new HashMap&lt;String, String&gt;();
+        querys.put(&quot;code&quot;, code);// !!! 请求参数
+        querys.put(&quot;phone&quot;, phone);// !!! 请求参数
+        querys.put(&quot;skin&quot;, skin);// !!! 请求参数
+        try {
+            HttpResponse response = HttpUtils.doGet(host, path, method, headers, querys);
+            //System.out.println(response.toString()); //输出头部
+            System.out.println(EntityUtils.toString(response.getEntity())); //输出json
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+</code></pre>
+<p>需要注意的是，后端要进行验证并阻止反复刷验证，同时也要保存一定时间的验证码结果，这可以使用Redis实现</p>
+<pre><code class="language-java">@ResponseBody
+@GetMapping(&quot;/sms/sendcode&quot;)
+public R sendCode(@RequestParam(&quot;phone&quot;) String phone) {
+    // 1. 接口防刷
+    String redisCode = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + phone);
+    if(redisCode != null) {
+        long l = Long.parseLong(redisCode.split(&quot;_&quot;)[1]);
+        if (System.currentTimeMillis() - l &lt; 60000) {
+            // 60秒内不能再发
+            return R.error(BizCodeEnum.SMS_CODE_EXCEPTION.getCode(), BizCodeEnum.SMS_CODE_EXCEPTION.getMsg());
+        }
+    }
+
+    String code = UUID.randomUUID().toString().substring(0, 6) + &quot;_&quot; + System.currentTimeMillis();
+    // 2. 验证码再次校验: 存入redis缓存: key:phoneNum - value:code
+    redisTemplate.opsForValue().set(AuthServerConstant.SMS_CODE_CACHE_PREFIX + phone, code, 20, TimeUnit.MINUTES);
+    //实际接入短信验证码接口
+    //thirdPartFeignService.sendCode(phone, code.split(&quot;_&quot;)[0]);
+    // 测试
+    System.out.println(&quot;phone:&quot; + phone + &quot; code:&quot; + code.split(&quot;_&quot;)[0]);
+    return R.ok();
+}
+</code></pre>
+<h2 id="注册功能">注册功能</h2>
+<p>在注册页面的控制器如下，能够完成校验和错误封装功能，并调用远程服务实际完成注册。详细拆解这一部分的内容</p>
+<h3 id="格式验证">格式验证</h3>
+<p>需要对传递过来的注册信息进行格式验证，仍然使用JSR的标准注解，同时使用RedirectAttributes重定向后保存错误信息</p>
+<pre><code class="language-java">if (result.hasErrors()) {
+    // 验证出错转发到注册页
+    Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
+    result.getFieldErrors().stream().forEach(fieldError -&gt; {
+        if (errors.containsKey(fieldError.getField()) &amp;&amp; errors.get(fieldError.getField()).contains(&quot;必须填写&quot;)) {
+
+        } else {
+            errors.put(fieldError.getField(), fieldError.getDefaultMessage());
+        }
+    });
+    redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
+    return &quot;redirect:http://auth.mall.com/reg.html&quot;;
+}
+</code></pre>
+<h3 id="验证码时效验证">验证码时效验证</h3>
+<p>从Redis中取出缓存，查看是否失效和匹配</p>
+<pre><code class="language-java">// 真正注册：远程服务注册
+String code = vo.getCode();
+String s = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
+if (!StringUtils.isEmpty(s) &amp;&amp; code.equals(s.split(&quot;_&quot;)[0])) {
+    // 删除验证码，令牌机制
+    redisTemplate.delete(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
+    // 验证码通过，远程注册
+
+} else {
+    HashMap&lt;String, String&gt; errors = new HashMap&lt;&gt;();
+    errors.put(&quot;code&quot;, &quot;验证码错误&quot;);
+    redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
+    return &quot;redirect:http://auth.mall.com/reg.html&quot;;
+}
+
+return &quot;redirect:/login.html&quot;;
+</code></pre>
+<h3 id="唯一性异常">唯一性异常</h3>
+<p>当出现唯一性校验问题时直接由方法抛出异常，在controller接收数据后封装。</p>
+<pre><code class="language-java">@Override
+public void regist(MemberRegistVo vo) {
+    MemberEntity memberEntity = new MemberEntity();
+
+    // 设置为默认等级
+    MemberLevelEntity levelEntity = memberLevelDao.getDefaultLevel();
+    memberEntity.setLevelId(levelEntity.getId());
+
+    // 设置
+    // 唯一性校验 - 使用异常机制
+    checkPhoneUnique(vo.getPhone());
+    checkPhoneUnique(vo.getUserName());
+
+    memberEntity.setMobile(vo.getPhone());
+    memberEntity.setUsername(vo.getUserName());
+
+    // 密码保存：使用MD5加密存储密码
+
+
+    baseMapper.insert(memberEntity);
+}
+
+
+@Override
+public void checkPhoneUnique(String phone) throws PhoneExistsException {
+    Integer count = this.baseMapper.selectCount(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;mobile&quot;, phone));
+    if(count &gt; 0) {
+        throw new PhoneExistsException();
+    }
+}
+
+@Override
+public void checkUsernameUnique(String username) throws UsernameExistsException {
+    Integer count = this.baseMapper.selectCount(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;username&quot;, username));
+    if(count &gt; 0) {
+        throw new UsernameExistsException();
+    }
+}
+</code></pre>
+<p>Controller的异常处理</p>
+<pre><code class="language-java">@PostMapping(&quot;/regist&quot;)
+public R regist(@RequestBody MemberRegistVo vo) {
+    try {
+        memberService.regist(vo);
+    } catch (PhoneExistsException e) {
+        return R.error(BizCodeEnum.PHONE_EXIST_EXCEPTION.getCode(), BizCodeEnum.PHONE_EXIST_EXCEPTION.getMsg());
+    } catch (UsernameExistsException e) {
+        return R.error(BizCodeEnum.USER_EXIST_EXCEPTION.getCode(), BizCodeEnum.USER_EXIST_EXCEPTION.getMsg())
+    }
+    return R.ok();
+}
+</code></pre>
+<h3 id="md5盐值加密">MD5盐值加密</h3>
+<p>MD5是一种不可逆的明文加密手段，但是如果直接加密很有可能通过暴力枚举的数据库查询到。使用盐值加密增加了一个扰动使得破解变得困难无比。Spring提供了一个封装</p>
+<pre><code class="language-java">@Test
+public void contextLoads() {
+    BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    String encode = passwordEncoder.encode(&quot;123456&quot;);
+    boolean matches = passwordEncoder.matches(&quot;123456&quot;, &quot;$2a$10$dAr8XERaa3rX3qt3dkBp4uzoRkPHIOn4dS2DkcaA3niFs4A9CKkPe&quot;);
+    System.out.println(matches);
+}
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1637587348313.png" alt="" loading="lazy"><br>
+完整版Controller</p>
+<pre><code class="language-java">@PostMapping(&quot;/regist&quot;)
+public String regist(@Valid UserRegistVo vo, BindingResult result, RedirectAttributes redirectAttributes) {
+    if (result.hasErrors()) {
+        // 验证出错转发到注册页
+        Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
+        result.getFieldErrors().stream().forEach(fieldError -&gt; {
+            if (errors.containsKey(fieldError.getField()) &amp;&amp; errors.get(fieldError.getField()).contains(&quot;必须填写&quot;)) {
+
+            } else {
+                errors.put(fieldError.getField(), fieldError.getDefaultMessage());
+            }
+        });
+        redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
+        return &quot;redirect:http://auth.mall.com/reg.html&quot;;
+    }
+    // 真正注册：远程服务注册
+    String code = vo.getCode();
+    String s = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
+    if (!StringUtils.isEmpty(s) &amp;&amp; code.equals(s.split(&quot;_&quot;)[0])) {
+        // 删除验证码，令牌机制
+        redisTemplate.delete(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
+        // 验证码通过，远程注册
+
+        R r = memberFeignService.regist(vo);
+        if(r.getCode() == 0) {
+            // 成功
+            return &quot;redirect:http://auth.mall.com/login.html&quot;;
+        } else {
+            Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
+            errors.put(&quot;msg&quot;, r.getData(&quot;msg&quot;, new TypeReference&lt;String&gt;(){}));
+            redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
+            return &quot;redirect:http://auth.mall.com/reg.html&quot;;
+        }
+    } else {
+        HashMap&lt;String, String&gt; errors = new HashMap&lt;&gt;();
+        errors.put(&quot;code&quot;, &quot;验证码错误&quot;);
+        redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
+        return &quot;redirect:http://auth.mall.com/reg.html&quot;;
+    }
+}
+</code></pre>
+<p>注册成功会跳转到登录页，否则回到注册页并显示问题</p>
+<h2 id="账号密码登录">账号密码登录</h2>
+<pre><code class="language-java">@Override
+public MemberEntity login(MemberLoginVo vo) {
+    String loginacct = vo.getLoginacct();
+    String password = vo.getPassword();
+
+    // 1. 去数据库查询密码
+    MemberEntity entity = baseMapper.selectOne(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;username&quot;, loginacct).or().eq(&quot;mobile&quot;, loginacct));
+    if(entity == null) {
+        return null;
+    } else {
+        String passwordDb = entity.getPassword();
+        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+        // 2. 密码匹配
+        if (passwordEncoder.matches(password, passwordDb)) {
+            return entity;
+        } else {
+            return null;
+        }
+    }
+}
+</code></pre>
+<h2 id="社交登录">社交登录</h2>
+<ul>
+<li>OAuth（开放授权） 是一个开放标准， 允许用户授权第三方网站访问他们存储在另外的服务提供者上的信息， 而不需要将用户名和密码提供给第三方网站或分享他们数据的所有内容。</li>
+<li>OAuth2.0： 对于用户相关的 OpenAPI（例如获取用户信息， 动态同步， 照片， 日志， 分享等） ， 为了保护用户数据的安全和隐私， 第三方网站访问用户数据前都需要显式的向用户征求授权<br>
+<img src="https://dxone1.github.io//post-images/1637643932048.png" alt="" loading="lazy"></li>
+</ul>
+<h3 id="接入微博第三方登录">接入微博第三方登录</h3>
+<p>先在微博开放平台创建账号、应用并填写相关信息<br>
+<img src="https://dxone1.github.io//post-images/1637742996836.png" alt="" loading="lazy"></p>
+<ol>
+<li>当点击微博登陆时，跳转到如下超链接</li>
+</ol>
+<pre><code class="language-java">https://api.weibo.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&amp;response_type=code&amp;redirect_uri=YOUR_REGISTERED_REDIRECT_URI
+</code></pre>
+<ol start="2">
+<li>成功授权后会跳转到指定成功回调页面，同时返回code</li>
+</ol>
+<pre><code class="language-java">http://mall.com/success?code=197c0fba7cf6066ef5dc7cac1aed1289
+</code></pre>
+<ol start="3">
+<li>使用code到如下地址换取access Token</li>
+</ol>
+<pre><code class="language-java">https://api.weibo.com/oauth2/access_token?client_id=YOUR_CLIENT_ID&amp;client_secret=YOUR_CLIENT_SECRET&amp;grant_type=authorization_code&amp;redirect_uri=YOUR_REGISTERED_REDIRECT_URI&amp;code=CODE
+</code></pre>
+<ol start="4">
+<li>使用AccessToken获取weibo的各类型开放数据</li>
+<li>获取当前用户的id，查询是否已经注册。已经注册的登录，否则新建一个默认账号</li>
+</ol>
+<pre><code class="language-java">@Override
+public MemberEntity login(SocialUser socialUser) throws Exception {
+    // 登录和注册两个逻辑
+    MemberEntity memberEntity = baseMapper.selectOne(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;social_uid&quot;, socialUser.getUid()));
+    if (memberEntity != null) {
+        //已经注册了
+        //更新数据库
+        MemberEntity update = new MemberEntity();
+        update.setId(memberEntity.getId());
+        update.setAccessToken(socialUser.getAccess_token());
+        update.setExpiresIn(socialUser.getExpires_in());
+        baseMapper.updateById(update);
+        //返回
+        memberEntity.setAccessToken(socialUser.getAccess_token());
+        memberEntity.setExpiresIn(socialUser.getExpires_in());
+        return memberEntity;
+    } else {
+        MemberEntity regist = new MemberEntity();
+        try {
+            // 查询社交帐号信息（昵称，性别等）
+            Map&lt;String, String&gt; query = new HashMap&lt;&gt;();
+            query.put(&quot;access_token&quot;, socialUser.getAccess_token());
+            query.put(&quot;uid&quot;, socialUser.getUid());
+            HttpResponse response = HttpUtils.doGet(&quot;https://api.weibo.com&quot;, &quot;/2/users/show.json&quot;, &quot;get&quot;, new HashMap&lt;String, String&gt;(), query);
+            if (response.getStatusLine().getStatusCode() == 200) {
+                //成功
+                String json = EntityUtils.toString(response.getEntity());
+                JSONObject jsonObject = JSON.parseObject(json);
+                String name = jsonObject.getString(&quot;name&quot;);
+                String gender = jsonObject.getString(&quot;gender&quot;);
+                regist.setNickname(name);
+                if (gender != null) {
+                    regist.setGender(&quot;m&quot;.equals(gender) ? 1 : 0);
+                }
+            }
+        } catch (Exception e) {
+            
+        }
+        regist.setSocialIUid(socialUser.getUid());
+        regist.setAccessToken(socialUser.getAccess_token());
+        regist.setExpiresIn(socialUser.getExpires_in());
+        
+        baseMapper.insert(regist);
+        return regist;
+    }
+}
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637818018183.png" alt="" loading="lazy"></figure>
+<h2 id="分布式session">分布式Session</h2>
+<p>如果想使用Session在分布式系统中就必须解决分布式Session的问题</p>
+<ul>
+<li>如果是同个服务的集群，那么就必须解决共享问题</li>
+<li>如果要在服务之间共享session，就需要互通</li>
+</ul>
+<ol>
+<li>Session复制<br>
+tomcat原生支持，只需要修改配置文件即可。然而其会占用大量的带宽，会降低业务处理能力。</li>
+<li>客户端存储<br>
+用户自己保存session信息到cookie中，然而安全信很低，也很消耗带宽。http请求能保存的信息也不多。</li>
+<li>使用Hash一致性<br>
+负载均衡使只有固定的服务器服务同一个ip。</li>
+<li>统一Session存储<br>
+<img src="https://dxone1.github.io//post-images/1637761441421.png" alt="" loading="lazy"><br>
+子域session共享：<br>
+第一次使用session会命令浏览器保存JSESSIONID的cookie，此后访问那个网站都会带上cookie<br>
+子域之间共享seesion的cookie，则需要在设置JSESSIONID时将domain扩大（域扩大为它们的父）。</li>
+</ol>
+<h3 id="spring-session">Spring Session</h3>
+<p>spring Session基于统一Session存储解决session共享问题，使用resdis担任session存储。</p>
+<ol>
+<li>导入依赖</li>
+<li>在配置类上添加@EnableRedisHttpSession注解，开启基于Redis的HttpSession功能</li>
+<li>需要更改SESSION的Domain为父域，这样同一个父域下的服务才能共享同一组SESSION。</li>
+<li>在mall-product服务下的首页通过取出session的内容即可知道当前用户的id等信息。<br>
+需要解决两个问题：</li>
+</ol>
+<ul>
+<li>改变SESSION的作用域</li>
+<li>改变序列化机制为JSON</li>
+</ul>
+<h3 id="修改cookie的作用域">修改cookie的作用域</h3>
+<p>参考文档，在容器中放置一个CookieSerializer。</p>
+<pre><code class="language-java">@Configuration
+public class MallSessionConfig {
+    @Bean
+    public CookieSerializer cookieSerializer() {
+        DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
+        cookieSerializer.setDomainName(&quot;mall.com&quot;);
+        cookieSerializer.setCookieName(&quot;MALLSESSION&quot;);
+        return cookieSerializer;
+    }
+}
+</code></pre>
+<h3 id="使用json序列化的redis-spring-session">使用JSON序列化的Redis Spring Session</h3>
+<p>参考官方文档，在容器中添加一个RedisSerializer</p>
+<pre><code class="language-java">@Bean
+public RedisSerializer&lt;Object&gt; springSessionDefaultRedisSerializer() {
+    return new GenericJackson2JsonRedisSerializer();
+}
+</code></pre>
+<p>成功实现了跨域、跨服务的分布式Session登录效果<br>
+<img src="https://dxone1.github.io//post-images/1637818316762.png" alt="" loading="lazy"></p>
+<h3 id="spring-session的原理">Spring Session的原理</h3>
+<p>@EnableRedisHttpSession添加了</p>
+<ul>
+<li>RedisOperationSessionRepository的组件，是Session的增删改查的封装类。</li>
+<li>SessionRepositoryFilter，过滤每一个Http的请求。</li>
+</ul>
+<p>一旦创建 SessionRepositoryFilter就要组合一个SessionRepository，执行doFilter会：</p>
+<ul>
+<li>先设置当前请求的Session操作实例</li>
+<li>将原生请求包装成适配的形式</li>
+<li>使用过滤器链（职责链模式）执行包装请求<br>
+<img src="https://dxone1.github.io//post-images/1637832139052.png" alt="" loading="lazy"><br>
+原因在于：<br>
+原生的session通过如下方法获取：</li>
+</ul>
+<pre><code class="language-java">HttpSession session = request.getSession();
+</code></pre>
+<p>而在这个拦截器中将原生的Request包装了。那么以后调用<code>session.getSession()</code>调用的就是SessionRepositoryRequestWrapper的方法：</p>
+<pre><code class="language-java">@Override
+public HttpSessionWrapper getSession(boolean create) {
+    HttpSessionWrapper currentSession = getCurrentSession();
+    if (currentSession != null) {
+        return currentSession;
+    }
+    S requestedSession = getRequestedSession();
+    if (requestedSession != null) {
+        if (getAttribute(INVALID_SESSION_ID_ATTR) == null) {
+            requestedSession.setLastAccessedTime(Instant.now());
+            this.requestedSessionIdValid = true;
+            currentSession = new HttpSessionWrapper(requestedSession, getServletContext());
+            currentSession.setNew(false);
+            setCurrentSession(currentSession);
+            return currentSession;
+        }
+    }
+    else {
+        // This is an invalid session id. No need to ask again if
+        // request.getSession is invoked for the duration of this request
+        if (SESSION_LOGGER.isDebugEnabled()) {
+            SESSION_LOGGER.debug(
+                    &quot;No session found by id: Caching result for getSession(false) for this HttpServletRequest.&quot;);
+        }
+        setAttribute(INVALID_SESSION_ID_ATTR, &quot;true&quot;);
+    }
+    if (!create) {
+        return null;
+    }
+    if (SESSION_LOGGER.isDebugEnabled()) {
+        SESSION_LOGGER.debug(
+                &quot;A new session was created. To help you troubleshoot where the session was created we provided a StackTrace (this is not an error). You can prevent this from appearing by disabling DEBUG logging for &quot;
+                        + SESSION_LOGGER_NAME,
+                new RuntimeException(
+                        &quot;For debugging purposes only (not an error)&quot;));
+    }
+    S session = SessionRepositoryFilter.this.sessionRepository.createSession();
+    session.setLastAccessedTime(Instant.now());
+    currentSession = new HttpSessionWrapper(session, getServletContext());
+    setCurrentSession(currentSession);
+    return currentSession;
+}
+</code></pre>
+<p>是使用SessionRepository中获取的，而这里的实现是RedisOperationSessionRepository，故是通过Redis获取的。使用了装饰者模式。</p>
+<h2 id="单点登录">单点登录</h2>
+<p>多系统场景中，希望不同系统之间可以统一的进行认证。而在这个场景中最多将域名放大至一级域名，这会导致多系统间无法共享session而难以完成共享登录信息的业务功能。<br>
+使用gitee的单点登录框架即可实现在一个统一认证中心登录之后处处都可以登录的效果。<br>
+系统流程：</p>
+<ol>
+<li>client1进入服务时要求登录，跳转到登录服务器，在参数中带上url</li>
+<li>服务器得到登录请求，将url封装到model中传递给页面</li>
+<li>页面得到url和相关登录参数，返回controller，验证是否登录成功。如果成功则添加用户信息到redis中，同时将key作为令牌回传给登录发起服务页，这个页面是一路传递的url</li>
+<li>登录发起页判断token是否成功获取，并以此得到用户信息。</li>
+<li>通过添加一个cookie标记浏览器，则同浏览器都可以获取单点登录的sso_token。于是只要一个页面登录成功过凡是访问到登录页面都可以发现这里有一个sso_token的cookie。</li>
+<li>在登录页一开始就判断：如果有sso_token这个cookie则直接返回，否则再进行登录流程。</li>
+</ol>
+<p>服务器：</p>
+<pre><code class="language-java">@Controller
+public class LoginController {
+
+    @ResponseBody
+    @GetMapping(&quot;/userInfo&quot;)
+    public String userInfo(@RequestParam(&quot;token&quot;) String token) {
+        String s = redisTemplate.opsForValue().get(token);
+        return s;
+    }
+
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    @PostMapping(&quot;/doLogin&quot;)
+    public String doLogin(@RequestParam(&quot;username&quot;) String username,
+                          @RequestParam(&quot;password&quot;) String password,
+                          @RequestParam(&quot;url&quot;) String url,
+                          HttpServletResponse response) {
+
+
+        if (!StringUtils.isEmpty(username) &amp;&amp; !StringUtils.isEmpty(password)) {
+            // 认为登录成功
+
+            String uuid = UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;);
+            // 保存到redis中，标记登录成功
+            redisTemplate.opsForValue().set(uuid, username);
+            // 保存到session中，单点登录
+            Cookie sso_token = new Cookie(&quot;sso_token&quot;, uuid);
+            response.addCookie(sso_token);
+            return &quot;redirect:&quot; + url + &quot;?token=&quot; + uuid;
+        } else {
+            return &quot;redirect:http://sso.com:8080/login?redirect_url=&quot; + url;
+        }
+    }
+
+    @GetMapping(&quot;/login&quot;)
+    public String loginPage(@RequestParam(&quot;redirect_url&quot;) String url,
+                            Model model,
+                            @CookieValue(value = &quot;sso_token&quot;, required = false) String sso_token) {
+        //说明以前已经登录过了！
+        if (!StringUtils.isEmpty(sso_token)) {
+            return &quot;redirect:&quot; + url + &quot;?token=&quot; + sso_token;
+        }
+        model.addAttribute(&quot;url&quot;, url);
+        return &quot;login&quot;;
+    }
+}
+</code></pre>
+<p>服务器页面</p>
+<pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot; xmlns:th=&quot;http://www.thymeleaf.org&quot;&gt;
+&lt;head&gt;
+    &lt;meta charset=&quot;UTF-8&quot;&gt;
+    &lt;title&gt;Title&lt;/title&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;form action=&quot;/doLogin&quot; method=&quot;post&quot;&gt;
+    姓名：&lt;input name=&quot;username&quot;/&gt;&lt;/br&gt;
+    密码：&lt;input name=&quot;password&quot; type=&quot;password&quot;&gt;&lt;/br&gt;
+    &lt;input type=&quot;hidden&quot; name=&quot;url&quot; th:value=&quot;${url}&quot;&gt;
+    &lt;input type=&quot;submit&quot; name=&quot;提交&quot;&gt;
+&lt;/form&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+<p>单点登录发起控制器</p>
+<pre><code class="language-java">@Controller
+public class HelloController {
+
+    @Value(&quot;${sso.server.url}&quot;)
+    String ssoServerUrl;
+
+    @ResponseBody
+    @GetMapping(&quot;/hello&quot;)
+    public String hello() {
+        return &quot;hello&quot;;
+    }
+
+    @GetMapping(&quot;/employees&quot;)
+    public String employees(Model model, HttpSession session, @RequestParam(value = &quot;token&quot;, required = false) String token) {
+        if(!StringUtils.isEmpty(token)) {
+            //认为登录成功
+            RestTemplate restTemplate = new RestTemplate();
+            ResponseEntity&lt;String&gt; forEntity = restTemplate.getForEntity(&quot;http://sso.com:8080/userInfo?token=&quot; + token, String.class);
+            String body = forEntity.getBody();
+            session.setAttribute(&quot;loginUser&quot;, body);
+        }
+
+        Object loginUser = session.getAttribute(&quot;loginUser&quot;);
+        if(loginUser == null) {
+            //未登录，跳转到登录服务器登录
+            //带上参数标识回跳页面
+            return &quot;redirect:&quot; + ssoServerUrl+&quot;?redirect_url=http://client2.com:8081/employees&quot;;
+        } else {
+            List&lt;String&gt; emps = new ArrayList&lt;&gt;();
+            emps.add(&quot;张三&quot;);
+            emps.add(&quot;李四&quot;);
+            model.addAttribute(&quot;emps&quot;, emps);
+            return &quot;list&quot;;
+        }
+    }
+}
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day14：异步处理]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day14yi-bu-chu-li/</id>
@@ -1788,193 +2374,6 @@ public void updateSpuAttr(Long spuId, List&lt;ProductAttrValueEntity&gt; entitie
 }
 </code></pre>
 <figure data-type="image" tabindex="3"><img src="https://dxone1.github.io//post-images/1636694892686.png" alt="" loading="lazy"></figure>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 day7：发布商品功能]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day7/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day7/">
-        </link>
-        <updated>2021-11-10T02:19:53.000Z</updated>
-        <content type="html"><![CDATA[<p>继续完善后台管理系统的各种功能，首先编写商品维护系统中的发布商品功能</p>
-<h2 id="发布商品">发布商品</h2>
-<p>前端页面如下<br>
-<img src="https://dxone1.github.io//post-images/1636510989235.png" alt="" loading="lazy"><br>
-首先会发出请求会员等级，请求方式为Get，地址为http://localhost:88/api/member/memberlevel/list?t=1636511786443&amp;page=1&amp;limit=500，返回分页数据<br>
-在后端写逻辑，其实不用在这里写，写在用户系统中，调整即可。<br>
-会员等级页面：<br>
-<img src="https://dxone1.github.io//post-images/1636513825943.png" alt="" loading="lazy"></p>
-<ol>
-<li>获取分类关联的品牌<br>
-在发布商品页面如果选择分类会发送一个请求关联品牌，编写相关的后端逻辑<br>
-GET：http://localhost:88/api/product/categorybrandrelation/brands/list?t=1636514532755&amp;catId=225</li>
-</ol>
-<pre><code class="language-java">@Override
-public List&lt;BrandEntity&gt; getBrandsByCatId(Long catId) {
-    List&lt;CategoryBrandRelationEntity&gt; relationEntities = relationDao.selectList(new QueryWrapper&lt;CategoryBrandRelationEntity&gt;().eq(&quot;catelog_id&quot;, catId));
-    List&lt;BrandEntity&gt; collect = relationEntities.stream().map(item -&gt; {
-        Long brandId = item.getBrandId();
-        BrandEntity brandEntity = brandService.getById(brandId);
-        return brandEntity;
-    }).collect(Collectors.toList());
-    return collect;
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1636515964281.png" alt="" loading="lazy"><br>
-2. 获取分类下所有分组和基本属性<br>
-<img src="https://dxone1.github.io//post-images/1636516276038.png" alt="" loading="lazy"><br>
-这个页面要求获取所选分类下所有分组和基本属性</p>
-<pre><code class="language-java">/**
-    * 根据分类id查询所有的group以及其中的属性
-    * @param catelogId
-    * @return
-    */
-@Override
-public List&lt;AttrGroupWithAttrsVo&gt; getAttrGroupWithAttrsByCatelogId(Long catelogId) {
-    // 查出所有分组
-    List&lt;AttrGroupEntity&gt; groupEntities = this.list(new QueryWrapper&lt;AttrGroupEntity&gt;().eq(&quot;catelog_id&quot;, catelogId));
-    // 查询所有属性
-    List&lt;AttrGroupWithAttrsVo&gt; collect = groupEntities.stream().map(group -&gt; {
-        AttrGroupWithAttrsVo attrGroupWithAttrsVo = new AttrGroupWithAttrsVo();
-        // 封装
-        BeanUtils.copyProperties(group, attrGroupWithAttrsVo);
-        // 查询属性
-        Long attrGroupId = group.getAttrGroupId();
-        List&lt;AttrEntity&gt; attrEntities = attrService.getRelationAttr(attrGroupId);
-        attrGroupWithAttrsVo.setAttrs(attrEntities);
-
-        return attrGroupWithAttrsVo;
-    }).collect(Collectors.toList());
-
-    return collect;
-}
-</code></pre>
-<p>效果<br>
-<img src="https://dxone1.github.io//post-images/1636519102576.png" alt="" loading="lazy"><br>
-3. 返回的是一个很大的Json串，为了合理的封装使用一个SpuSaveVo封装。使用在线的生成工具即可生成，然后编写保存逻辑，以下是业务逻辑</p>
-<pre><code class="language-txt">//1. 保存SPU基本信息 pms_spu_info
-//2. 保存SPU的描述图片 pms_spu_info_desc
-//3. 保存SPU的图片集 pms_spu_images
-//4. 保存SPU的规格参数 pms_product_attr_value
-//5. 保存SPU的积分信息 跨库：mall_sms -&gt; sms_spu_bounds
-//6. 保存当前SPU对应的所有SKU信息
-    //6.1. SKU的基本信息 pms_sku_info
-    //6.2. SKU的图片 pms_sku_images
-    //6.3. SKU的销售属性 pms_sku_sale_attr_value
-    //6.4. SKU的优惠信息 跨库：mall_sms -&gt; sms_sku_ladder, sms_sku_full_reduction, sms_member_price
-</code></pre>
-<p>注意有两个跨服务逻辑：使用mall-coupon提供的远程调用，使用openFeign。服务间调用使用TO封装数据，都是传递json</p>
-<pre><code class="language-java">@Transactional
-@Override
-public void saveSpuInfo(SpuSaveVo vo) {
-    //1. 保存SPU基本信息 pms_spu_info
-    SpuInfoEntity infoEntity = new SpuInfoEntity();
-    BeanUtils.copyProperties(vo, infoEntity);
-    infoEntity.setCreateTime(new Date());
-    infoEntity.setUpdateTime(new Date());
-    this.saveBaseSpuInfo(infoEntity);
-
-    //2. 保存SPU的描述图片 pms_spu_info_desc
-    List&lt;String&gt; decript = vo.getDecript();
-    SpuInfoDescEntity descEntity = new SpuInfoDescEntity();
-    descEntity.setSpuId(infoEntity.getId());
-    descEntity.setDecript(String.join(&quot;,&quot;, decript));
-    spuInfoDescService.saveSpuInfoDesc(descEntity);
-
-    //3. 保存SPU的图片集 pms_spu_images
-    List&lt;String&gt; images = vo.getImages();
-    spuImagesService.saveImages(infoEntity.getId(), images);
-
-    //4. 保存SPU的规格参数 pms_product_attr_value
-    List&lt;BaseAttrs&gt; baseAttrs = vo.getBaseAttrs();
-    List&lt;ProductAttrValueEntity&gt; collect = baseAttrs.stream().map(attr -&gt; {
-        ProductAttrValueEntity valueEntity = new ProductAttrValueEntity();
-        valueEntity.setAttrId(attr.getAttrId());
-        // 查属性entity
-        AttrEntity attrEntity = attrService.getById(attr.getAttrId());
-        valueEntity.setAttrName(attrEntity.getAttrName());
-        valueEntity.setAttrValue(attr.getAttrValues());
-        valueEntity.setQuickShow(attr.getShowDesc());
-        valueEntity.setSpuId(infoEntity.getId());
-        return valueEntity;
-    }).collect(Collectors.toList());
-    productAttrValueService.saveProductAttr(collect);
-
-    //5. 保存SPU的积分信息 跨库：mall_sms -&gt; sms_spu_bounds
-    // 封装远程调用数据
-    Bounds bounds = vo.getBounds();
-    SpuBoundTo spuBoundTo = new SpuBoundTo();
-    BeanUtils.copyProperties(bounds, spuBoundTo);
-    spuBoundTo.setSpuId(infoEntity.getId());
-    // 远程调用
-    R r = couponFeignService.saveSpuBounds(spuBoundTo);
-    if(r.getCode() != 0) {
-        log.error(&quot;远程保存spu积分信息失败&quot;);
-    }
-
-    //6. 保存当前SPU对应的所有SKU信息
-    List&lt;Skus&gt; skus = vo.getSkus();
-    if(skus != null &amp;&amp; skus.size() &gt; 0) {
-        skus.forEach(item -&gt; {
-            // 获取默认图片
-            String defaultImg = &quot;&quot;;
-            for(Images image: item.getImages()) {
-                if(image.getDefaultImg() == 1) {
-                    defaultImg = image.getImgUrl();
-                }
-            }
-            ///基本信息
-            //6.1. SKU的基本信息 pms_sku_info
-            SkuInfoEntity skuInfoEntity = new SkuInfoEntity();
-            BeanUtils.copyProperties(item, skuInfoEntity);
-            // 手动注入剩下的属性
-            skuInfoEntity.setBrandId(infoEntity.getBrandId());
-            skuInfoEntity.setCatalogId(infoEntity.getCatalogId());
-            skuInfoEntity.setSaleCount(0L);
-            skuInfoEntity.setSpuId(infoEntity.getId());
-            skuInfoEntity.setSkuDefaultImg(defaultImg);
-            skuInfoService.saveSkuInfo(skuInfoEntity);
-
-            // sku自增主键
-            Long skuId = skuInfoEntity.getSkuId();
-
-            //6.2. 保存SKU的图片 pms_sku_images
-            List&lt;SkuImagesEntity&gt; imagesEntities = item.getImages().stream().map(img -&gt; {
-                SkuImagesEntity skuImagesEntity = new SkuImagesEntity();
-                skuImagesEntity.setSkuId(skuId);
-                skuImagesEntity.setImgUrl(img.getImgUrl());
-                skuImagesEntity.setDefaultImg(img.getDefaultImg());
-                return skuImagesEntity;
-            }).filter(entity -&gt; {
-                // 返回true需要，否则抛弃
-                return !StringUtils.isEmpty(entity.getImgUrl());
-            }).collect(Collectors.toList());
-            skuImagesService.saveBatch(imagesEntities);
-
-            //6.3. SKU的销售属性 pms_sku_sale_attr_value
-            List&lt;Attr&gt; attr = item.getAttr();
-            List&lt;SkuSaleAttrValueEntity&gt; skuSaleAttrValueEntities = attr.stream().map(a -&gt; {
-                SkuSaleAttrValueEntity skuSaleAttrValueEntity = new SkuSaleAttrValueEntity();
-                BeanUtils.copyProperties(a, skuSaleAttrValueEntity);
-                skuSaleAttrValueEntity.setSkuId(skuInfoEntity.getSkuId());
-                return skuSaleAttrValueEntity;
-            }).collect(Collectors.toList());
-            skuSaleAttrValueService.saveBatch(skuSaleAttrValueEntities);
-
-            //6.4. SKU的优惠信息 跨库：mall_sms -&gt; sms_sku_ladder, sms_sku_full_reduction, sms_member_price
-            SkuReductionTo skuReductionTo = new SkuReductionTo();
-            BeanUtils.copyProperties(item, skuReductionTo);
-            skuReductionTo.setSkuId(skuId);
-            if(skuReductionTo.getFullCount() &gt;0 || (skuReductionTo.getFullPrice() != null &amp;&amp; skuReductionTo.getFullPrice().compareTo(new BigDecimal(&quot;0&quot;)) == 1)){
-                R r1 = couponFeignService.saveSkuReduction(skuReductionTo);
-                if(r1.getCode() != 0) {
-                    log.error(&quot;远程保存sku积分信息失败&quot;);
-                }
-            }
-        });
-    }
-</code></pre>
-<p>调试需要花费很大的心思，而且并不足够健壮。</p>
 ]]></content>
     </entry>
 </feed>
