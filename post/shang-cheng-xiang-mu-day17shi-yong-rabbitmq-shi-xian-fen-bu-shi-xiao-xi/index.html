@@ -1,0 +1,500 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day17：使用RabbitMQ实现分布式消息 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1638020549758">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day17：使用RabbitMQ实现分布式消息 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="消息中间件在项目中的应用
+
+实现异步处理
+
+例如：原先有如下工作流程
+
+调整为异步模式：
+
+考察这个场景，其实反馈根本无需等待发送邮件和短信成功，则使用消息中间件的流程如下：
+
+2. 应用解耦
+以下为例，如果库存系统的接口改变，订单系统也不..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1638020549758" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day17：使用RabbitMQ实现分布式消息
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-27
+              </span>
+              <span>
+                10 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h2 id="消息中间件在项目中的应用">消息中间件在项目中的应用</h2>
+<ol>
+<li>实现异步处理</li>
+</ol>
+<p>例如：原先有如下工作流程<br>
+<img src="https://dxone1.github.io//post-images/1637983169916.png" alt="" loading="lazy"><br>
+调整为异步模式：<br>
+<img src="https://dxone1.github.io//post-images/1637983189849.png" alt="" loading="lazy"><br>
+考察这个场景，其实反馈根本无需等待发送邮件和短信成功，则使用消息中间件的流程如下：<br>
+<img src="https://dxone1.github.io//post-images/1637983256227.png" alt="" loading="lazy"><br>
+2. 应用解耦</p>
+<p>以下为例，如果库存系统的接口改变，订单系统也不需要改变调用<br>
+<img src="https://dxone1.github.io//post-images/1637983651720.png" alt="" loading="lazy"></p>
+<ol start="3">
+<li>流量控制</li>
+</ol>
+<p>瞬时流量很大的秒杀业务等，将大并发量的请求全部存储到消息队列中，真正的业务处理订阅消息队列挨个处理即可。不会造成后台的资源耗尽。</p>
+<h2 id="rabbitmq">RabbitMQ</h2>
+<p>消息代理：安装了消息中间件的服务器<br>
+目的地：</p>
+<ul>
+<li>队列：点对点的消息通信：可以有多个接收者监听，但同一个消息只会被一个消费者消费</li>
+<li>主题：发布订阅模式的消息通信：将消息发送到主题中，能有同时多个接收者消费该消息</li>
+</ul>
+<p>RabbitMQ基于AMOP实现，也兼容了JMS规范<br>
+<img src="https://dxone1.github.io//post-images/1637985445167.png" alt="" loading="lazy"></p>
+<h3 id="简介">简介</h3>
+<p>RabbitMQ是一个由erlang开发的AMQP(Advanved Message Queue Protocol)的开源实现。<br>
+<img src="https://dxone1.github.io//post-images/1637993392181.png" alt="" loading="lazy"></p>
+<h3 id="安装">安装</h3>
+<p>使用Docker安装，端口定义如下</p>
+<ul>
+<li>4369, 25672 (Erlang发现&amp;集群端口)</li>
+<li>5672, 5671 (AMQP端口)</li>
+<li>15672 (web管理后台端口)</li>
+<li>61613, 61614 (STOMP协议端口)</li>
+<li>1883, 8883 (MQTT协议端口)</li>
+</ul>
+<p>官网：https://www.rabbitmq.com/networking.html</p>
+<pre><code class="language-dockerfile">docker run -d --name rabbitmq -p 5671:5671 -p 5672:5672 -p 4369:4369 -p 25672:25672 -p 15671:15671 -p 15672:15672 rabbitmq:management
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1638000519523.png" alt="" loading="lazy"></figure>
+<h3 id="交换机">交换机</h3>
+<p>Exchange分发消息时根据类型的不同分发策略有区别，目前共四种类型：direct、fanout、topic、headers 。headers 匹配 AMQP 消息的 header 而不是路由键，headers 交换器和 direct 交换器完全一致，但性能差很多，目前几乎用不到了，所以直接看另外三种类型：</p>
+<ol>
+<li>Direct （点对点）<br>
+消息中的路由键（routing key）如果和Binding 中的 binding key 一致， 交换器就将消息发到对应的队列中。路由键与队列名完全匹配，如果一个队列绑定到交换机要求路由键为“dog”，则只转发 routingkey 标记为“dog”的消息，不会转发“dog.puppy”，也不会转发“dog.guard”等等。它是完全匹配、单播的模式<br>
+<img src="https://dxone1.github.io//post-images/1638001476440.png" alt="" loading="lazy"></li>
+<li>Fanout （订阅）：广播<br>
+每个发到 fanout 类型交换器的消息都会分到所有绑定的队列上去。fanout 交换器不处理路由键，只是简单的将队列绑定到交换器上，每个发送到交换器的消息都会被转发到与该交换器绑定的所有队列上。很像子网广播，每台子网内的主机都获得了一份复制的消息。fanout 类型转发消息是最快的。<br>
+<img src="https://dxone1.github.io//post-images/1638001459277.png" alt="" loading="lazy"></li>
+<li>Topic（订阅）：泛匹配<br>
+opic 交换器通过模式匹配分配消息的路由键属性，将路由键和某个模式进行匹配，此时队列需要绑定到一个模式上。它将路由键和绑定键的字符串切分成单词，这些单词之间用点隔开。它同样也会识别两个通配符：符号“#”和符号“*”。#匹配0个或多个单词，*匹配一个单词。<br>
+<img src="https://dxone1.github.io//post-images/1638001363325.png" alt="" loading="lazy"></li>
+</ol>
+<p>通过可视化界面创建交换机、队列并将它们绑定<br>
+<img src="https://dxone1.github.io//post-images/1638001804408.png" alt="" loading="lazy"></p>
+<h3 id="测试">测试</h3>
+<p>按照如下的图片结构建立交换网络<br>
+<img src="https://dxone1.github.io//post-images/1638001915949.png" alt="" loading="lazy"></p>
+<h3 id="springboot整合">springboot整合</h3>
+<ol>
+<li>引入依赖</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-amqp&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>开启RabbitMQ功能<code>@EnableRabbit</code></li>
+<li>配置rabbitMQ的连接功能</li>
+</ol>
+<pre><code class="language-yaml">spring.rabbitmq.host=192.168.180.3
+spring.rabbitmq.port=5672
+spring.rabbitmq.virtual-host=/
+</code></pre>
+<ol start="4">
+<li>测试创建</li>
+</ol>
+<pre><code class="language-java">@Slf4j
+@SpringBootTest
+@RunWith(SpringRunner.class)
+public class MallOrderApplicationTests {
+
+    /**
+     * 1 使用AmqpAdmin创建exchange, Queue, Binding等
+     * 2 配置连接信息 spring.rabbitmq.*
+      */
+    @Autowired
+    AmqpAdmin amqpAdmin;
+
+    @Test
+    public void createExchange() {
+        //创建交换机
+        DirectExchange directExchange = new DirectExchange(&quot;hello-java-exchange&quot;, true, false);
+        amqpAdmin.declareExchange(directExchange);
+        log.info(&quot;exchange[{}]创建成功&quot;, directExchange.getName());
+    }
+
+    @Test
+    public void createQueue() {
+        Queue queue = new Queue(&quot;hello-java-queue&quot;, true, false, false);
+        amqpAdmin.declareQueue(queue);
+        log.info(&quot;Queue[{}]创建成功&quot;, queue.getName());
+    }
+
+    @Test
+    public void createBinding() {
+        Binding binding = new Binding(&quot;hello-java-queue&quot;,
+                Binding.DestinationType.QUEUE,
+                &quot;hello-java-exchange&quot;,
+                &quot;hello.java&quot;, null);
+        amqpAdmin.declareBinding(binding);
+        log.info(&quot;Binding创建成功&quot;);
+
+    }
+}
+</code></pre>
+<ol start="5">
+<li>测试发送消息<br>
+如果希望使用JSON序列化，则要给IOC添加一个JSON的MessageConverter</li>
+</ol>
+<pre><code class="language-java">@Configuration
+public class MyRabbitConfig {
+
+    @Bean
+    public MessageConverter messageConverter() {
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter();
+        return converter;
+    }
+}
+</code></pre>
+<pre><code class="language-java">@Test
+    public void sendMessageTest() {
+        String msg = &quot;Hello World!&quot;;
+        // 如果发送一个对象，则该对象必须序列化
+        OrderReturnReasonEntity reasonEntity = new OrderReturnReasonEntity();
+        reasonEntity.setId(1L);
+        reasonEntity.setCreateTime(new Date());
+        reasonEntity.setName(&quot;呵呵&quot;);
+        // 使用json序列化
+        rabbitTemplate.convertAndSend(&quot;hello-java-exchange&quot;, &quot;hello.java&quot;, reasonEntity);
+        log.info(&quot;消息发送完成{}&quot;, reasonEntity);
+    }
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1638005185596.png" alt="" loading="lazy"><br>
+6. 测试接收消息<br>
+使用@RabbitListener注解监听消息</p>
+<pre><code class="language-java">//@RabbitListener(queues = {&quot;hello-java-queue&quot;})
+// RabbitHandler可以使用重载接收多种类型
+@RabbitHandler
+public void receiveMessage(Message message,
+                            OrderReturnReasonEntity content,
+                            Channel channel) throws InterruptedException {
+    System.out.println(&quot;接收到消息...&quot;);
+    Thread.sleep(3000);
+    // 有消息头也有消息体
+    System.out.println(message);
+    // 直接使用对应类型接收
+    System.out.println(content);
+    // 也可以通过通道传输
+    System.out.println(channel);
+    System.out.println(&quot;消息处理完成&quot;);
+}
+</code></pre>
+<h3 id="rabbitmq的可靠抵达">RabbitMQ的可靠抵达</h3>
+<p>保证消息不丢失，可靠抵达，可以使用事务消息，性能下降250倍，为此引入确认机制<br>
+• publisher confirmCallback 确认模式<br>
+• publisher returnCallback 未投递到 queue 退回模式<br>
+• consumer ack机制<br>
+<img src="https://dxone1.github.io//post-images/1638006893744.png" alt="" loading="lazy"></p>
+<ol>
+<li>spring.rabbitmq.publisher-confirms=true</li>
+</ol>
+<ul>
+<li>在创建 connectionFactory 的时候设置 PublisherConfirms(true) 选项，开启confirmcallback 。</li>
+<li>CorrelationData：用来表示当前消息唯一性。</li>
+<li>消息只要被 broker 接收到就会执行 confirmCallback，如果是 cluster 模式，需要所有broker 接收到才会调用confirmCallback。</li>
+<li>被 broker 接收到只能表示 message 已经到达服务器，并不能保证消息一定会被投递 到目标 queue 里。所以需要用到接下来的returnCallback 。</li>
+</ul>
+<ol start="2">
+<li>spring.rabbitmq.publisher-returns=true<br>
+spring.rabbitmq.template.mandatory=true</li>
+</ol>
+<ul>
+<li>confrim 模式只能保证消息到达 broker，不能保证消息准确投递到目标 queue 里。在有 些业务场景下，我们需要保证消息一定要投递到目标 queue 里，此时就需要用到return 退回模式。</li>
+<li>这样如果未能投递到目标 queue 里将调用 returnCallback ，可以记录下详细到投递数 据，定期的巡检或者自动纠错都需要这些数据。</li>
+</ul>
+<ol start="3">
+<li>Ack消息确认机制</li>
+</ol>
+<ul>
+<li>消费者获取到消息，成功处理，可以回复Ack给Broker
+<ul>
+<li>basic.ack用于肯定确认；broker将移除此消息</li>
+<li>basic.nack用于否定确认；可以指定broker是否丢弃此消息，可以批量</li>
+<li>basic.reject用于否定确认；同上，但不能批量</li>
+</ul>
+</li>
+<li>默认自动ack，消息被消费者收到，就会从broker的queue中移除</li>
+<li>queue无消费者，消息依然会被存储，直到消费者消费</li>
+<li>消费者收到消息，默认会自动ack。但是如果无法确定此消息是否被处理完成， 或者成功处理。我们可以开启手动ack模式
+<ul>
+<li>消息处理成功，ack()，接受下一个消息，此消息broker就会移除</li>
+<li>消息处理失败，nack()/reject()，重新发送给其他人进行处理，或者容错处理后ack</li>
+<li>消息一直没有调用ack/nack方法，broker认为此消息正在被处理，不会投递给别人，此时客户 端断开，消息不会被broker移除，会投递给别人</li>
+</ul>
+</li>
+</ul>
+<h4 id="confirmcallback抵达服务器的回调">confirmCallback：抵达服务器的回调</h4>
+<p>在配置中开启</p>
+<pre><code class="language-yaml">spring.rabbitmq.publisher-confirms=true
+</code></pre>
+<p>定制RabbitTemplate，设置confirmCallback</p>
+<pre><code class="language-java">@PostConstruct
+public void initRabbitTemplate() {
+    rabbitTemplate.setConfirmCallback(new RabbitTemplate.ConfirmCallback() {
+        /**
+            *
+            * @param correlationData 含有消息的唯一id
+            * @param ack 消息是否成功
+            * @param cause 失败的原因
+            */
+        @Override
+        public void confirm(CorrelationData correlationData, boolean ack, String cause) {
+            System.out.println(&quot;confirm...id: &quot; + correlationData.getId() + &quot; ==&gt; ack: &quot; + ack + &quot;==&gt; cause: &quot; + cause);
+        }
+    });
+}
+</code></pre>
+<p>只要消息能顺利抵达服务器broker，就会回调confirmCallback，其中<code>ack = true</code>。</p>
+<h4 id="returncallback投递给队列失败">returnCallback：投递给队列失败</h4>
+<p>消息抵达队列会进行回调。</p>
+<pre><code class="language-yaml">#发送端消息抵达队列callback
+spring.rabbitmq.publisher-returns=true
+#以异步方式优先回调return confirm
+spring.rabbitmq.template.mandatory=true
+</code></pre>
+<pre><code class="language-java">@PostConstruct
+public void initRabbitTemplate() {
+
+    // Confirm Callback
+    ......
+    // Return Callback
+    rabbitTemplate.setReturnCallback(new RabbitTemplate.ReturnCallback() {
+        /**
+            * 消息投递失败给指定队列的回调
+            * @param message 投递失败的详细信息
+            * @param replyCode 回复码
+            * @param replyText 回复文本
+            * @param exchange 交换机
+            * @param routingKey 路由键
+            */
+        @Override
+        public void returnedMessage(Message message, int replyCode, String replyText, String exchange, String routingKey) {
+            System.out.println(&quot;Fail message:&quot; + message + &quot; ==&gt; replyCode:&quot; + replyCode + &quot; ==&gt; replyText:&quot; + replyText
+                    + &quot; ==&gt; exchange:&quot; + exchange + &quot; ==&gt; routingKey:&quot; + routingKey);
+        }
+    });
+}
+</code></pre>
+<h4 id="ack消息确认机制">Ack消息确认机制</h4>
+<p>消费端确认默认是自动确认，当有Listener监听到就取出并确认。队列就将自动移除该消息。如果接收了所有消息就会自动删除队列中消息。然而如果此时处理失败就会导致消息丢失。所以可能需要手动在处理成功后手动ack。</p>
+<pre><code class="language-yaml">spring.rabbitmq.listener.simple.acknowledge-mode=manual
+</code></pre>
+<pre><code class="language-java">@RabbitListener(queues = {&quot;hello-java-queue&quot;})
+// RabbitHandler可以使用重载接收多种类型
+//@RabbitHandler
+public void receiveMessage(Message message,
+                            OrderReturnReasonEntity content,
+                            Channel channel) {
+    System.out.println(&quot;接收到消息...&quot;);
+    //Thread.sleep(3000);
+    // 有消息头也有消息体
+    System.out.println(message);
+    // 直接使用对应类型接收
+    System.out.println(content);
+    // 也可以通过通道传输
+    System.out.println(channel);
+    System.out.println(&quot;消息处理完成&quot;);
+    /**
+        * 手动ack
+        * 传入deliverTag表示签收哪个消息，不多个一起签收
+        */
+    long deliveryTag = message.getMessageProperties().getDeliveryTag();
+    try {
+        System.out.println(deliveryTag);
+        if(deliveryTag % 2 == 0) {
+            channel.basicAck(deliveryTag, false);
+        } else {
+            /**
+                * 是否多个一起签收
+                * 是否重复入队
+                */
+            channel.basicNack(deliveryTag, false, false);
+        }
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+}
+</code></pre>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E6%B6%88%E6%81%AF%E4%B8%AD%E9%97%B4%E4%BB%B6%E5%9C%A8%E9%A1%B9%E7%9B%AE%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8">消息中间件在项目中的应用</a></li>
+<li><a href="#rabbitmq">RabbitMQ</a>
+<ul>
+<li><a href="#%E7%AE%80%E4%BB%8B">简介</a></li>
+<li><a href="#%E5%AE%89%E8%A3%85">安装</a></li>
+<li><a href="#%E4%BA%A4%E6%8D%A2%E6%9C%BA">交换机</a></li>
+<li><a href="#%E6%B5%8B%E8%AF%95">测试</a></li>
+<li><a href="#springboot%E6%95%B4%E5%90%88">springboot整合</a></li>
+<li><a href="#rabbitmq%E7%9A%84%E5%8F%AF%E9%9D%A0%E6%8A%B5%E8%BE%BE">RabbitMQ的可靠抵达</a>
+<ul>
+<li><a href="#confirmcallback%E6%8A%B5%E8%BE%BE%E6%9C%8D%E5%8A%A1%E5%99%A8%E7%9A%84%E5%9B%9E%E8%B0%83">confirmCallback：抵达服务器的回调</a></li>
+<li><a href="#returncallback%E6%8A%95%E9%80%92%E7%BB%99%E9%98%9F%E5%88%97%E5%A4%B1%E8%B4%A5">returnCallback：投递给队列失败</a></li>
+<li><a href="#ack%E6%B6%88%E6%81%AF%E7%A1%AE%E8%AE%A4%E6%9C%BA%E5%88%B6">Ack消息确认机制</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day16gou-wu-che-fu-wu/">
+              <h3 class="post-title">
+                商城项目 day16：购物车服务
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
