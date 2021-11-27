@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-11-26T02:43:07.873Z</updated>
+    <updated>2021-11-27T02:52:11.689Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,354 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day16：购物车服务]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day16gou-wu-che-fu-wu/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day16gou-wu-che-fu-wu/">
+        </link>
+        <updated>2021-11-26T02:54:47.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="配置环境">配置环境</h2>
+<p>新启动一个模块，配置好端口，应用名，nacos地址，启动服务注册和发现与FeignClients。</p>
+<pre><code class="language-xml">server.port=30000
+spring.application.name=mall-cart
+
+spring.cloud.nacos.discovery.server-addr=127.0.0.1:8848
+</code></pre>
+<p>将网关配置到该服务的转发</p>
+<h2 id="购物车功能">购物车功能</h2>
+<p>购物车需要有离线购物车功能，未登陆状态添加到购物车中会保存到这里。<br>
+在登录状态，购物车会将临时购物车项目合并到购物车中，同时清除离线购物车。</p>
+<ul>
+<li>用户可以使用购物车一起结算下单</li>
+<li>给购物车添加商品</li>
+<li>用户可以查询自己的购物车</li>
+<li>用户可以在购物车中修改购买商品的数量。</li>
+<li>用户可以在购物车中删除商品。</li>
+<li>选中不选中商品</li>
+<li>在购物车中展示商品优惠信息</li>
+<li>提示购物车商品价格变化</li>
+</ul>
+<p>技术选择：</p>
+<ul>
+<li>用户购物车：使用Redis+持久化策略实现</li>
+<li>临时购物车：使用Redis实现</li>
+</ul>
+<p>Redis数据结构：<br>
+每一条商品都是这样的结构：</p>
+<pre><code class="language-json">{
+    skuId: 2131241,
+    check: true,
+    title: &quot;Apple iphone.....&quot;,
+    defaultImage: &quot;...&quot;,
+    price: 4999,
+    count: 1,
+    totalPrice: 4999,
+    skuSaleVO: {...}
+}
+</code></pre>
+<p>每个购物车的value，都是一个双层hash类型（Hash表），这样每件商品的每一个属性都能快速的查找和修改。</p>
+<pre><code class="language-yaml">key: cart_id
+value: {
+  { 
+    key: sku_id
+    value : {
+      {key: check, value: true}
+      {key: totalPrice, value: 4999}     
+      ......      
+    }
+  }
+}
+</code></pre>
+<h2 id="功能编写">功能编写</h2>
+<ol>
+<li>VO的编写<br>
+根据上面的分析，购物车中每个商品的数据结构应该是一个双层的hash表，据此编写VO封装。每个cartItem中要有如下数据</li>
+</ol>
+<pre><code class="language-java">public class CartItem {
+    private Long skuId;
+    //是否选中
+    private Boolean check = true;
+    private String title;
+    private String image;
+    //sku销售属性
+    private List&lt;String&gt; skuAttr;
+    private BigDecimal price;
+    private Integer count;
+    private BigDecimal totalPrice;
+}
+</code></pre>
+<ol start="2">
+<li>整合SpringSession<br>
+因为需要从Session获取登录信息，所以也需要整合Spring Session实现共享Session：得到登录信息。</li>
+</ol>
+<h3 id="使用threadlocal和拦截器进行用户身份鉴定">使用ThreadLocal和拦截器进行用户身份鉴定</h3>
+<ul>
+<li>如果登录：则session中有用户信息</li>
+<li>如果没登录：则通过cookie中记录一个user-key来标识用户身份</li>
+<li>没有登录且没有user-key，需要给用户创建一个这个cookie</li>
+</ul>
+<p>要实现如上业务逻辑，可以考虑使用一个拦截器实现。</p>
+<pre><code class="language-java">public class CartInterceptor implements HandlerInterceptor {
+
+    public static ThreadLocal&lt;UserInfoTo&gt; threadLocal = new ThreadLocal&lt;&gt;();
+    /**
+     * 执行前拦截
+     * @param request
+     * @param response
+     * @param handler
+     * @return
+     * @throws Exception
+     */
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        UserInfoTo userInfoTo = new UserInfoTo();
+
+        HttpSession session = request.getSession();
+        MemberRespVo member = (MemberRespVo) session.getAttribute(AuthServerConstant.LOGIN_USER);
+        if(member != null) {
+            // 用户登陆
+            userInfoTo.setUserId(member.getId());
+        }
+        Cookie[] cookies = request.getCookies();
+        if(cookies != null &amp;&amp; cookies.length &gt; 0) {
+            for (Cookie cookie : cookies) {
+                String name = cookie.getName();
+                if(name.equals(CartConstant.TEMP_USER_COOKIE_NAME)) {
+                    userInfoTo.setUserKey(cookie.getValue());
+                    // 标记为已经存在临时用户
+                    userInfoTo.setTempUser(true);
+                }
+            }
+        }
+        //第一次非登录使用时必须创建临时用户
+        if(StringUtils.isEmpty(userInfoTo.getUserKey())) {
+            String uuid = UUID.randomUUID().toString();
+            userInfoTo.setUserKey(uuid);
+        }
+
+        //目标方法执行前放入threadLocal
+        threadLocal.set(userInfoTo);
+        return true;
+    }
+
+    /**
+     * 业务执行之后要通知浏览器保存一个cookie
+     * 其中存放了user-key，这样以后浏览器就可以使用这个cookie作为临时用户访问临时购物车
+     * @param request
+     * @param response
+     * @param handler
+     * @param modelAndView
+     * @throws Exception
+     */
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        UserInfoTo userInfoTo = threadLocal.get();
+        if(!userInfoTo.isTempUser()) {
+            Cookie cookie = new Cookie(CartConstant.TEMP_USER_COOKIE_NAME, userInfoTo.getUserKey());
+            cookie.setDomain(&quot;mall.com&quot;);
+            cookie.setMaxAge(CartConstant.TEMP_USER_COOKIE_TIMEOUT);
+            response.addCookie(cookie);
+        }
+        threadLocal.remove();
+    }
+}
+</code></pre>
+<p>记得在一个继承了<code>WebMvcConfigurer</code>的配置类中将该拦截器注册进调用链中。因为拦截器处理到最后的返回都在同一个线程内执行，所以考虑使用ThreadLoacl保证线程内的安全和共享。</p>
+<h3 id="页面逻辑关系">页面逻辑关系</h3>
+<ol>
+<li>在商品详情页点击添加购物车后，成功跳转到成功页，同时会执行商品添加逻辑。</li>
+<li>首页和检索页通过点击我的购物车都会跳转到cartList页面</li>
+<li>首页跳转<br>
+......</li>
+</ol>
+<h3 id="一个坑的解决">一个坑的解决</h3>
+<p>在Nginx中配置http stream转发时，因为Linux服务器设置在虚拟机中，网段与本机的外部ip不同，一直以来设置本机外部ip的转发速度都很差。<br>
+解决方案：<br>
+将其ip设置为以太网适配器 VMware Network Adapter VMnet8所指使的虚拟ip，速度大幅提升</p>
+<h2 id="添加购物车">添加购物车</h2>
+<h3 id="添加到购物车基本功能">添加到购物车：基本功能</h3>
+<ol>
+<li>添加到购物车时页面传参skuId和数量</li>
+</ol>
+<pre><code class="language-js">$(&quot;#addToCartA&quot;).click(function () {
+    var num = $(&quot;#numInput&quot;).val();
+    var skuId = $(this).attr(&quot;skuId&quot;);
+    location.href = &quot;http://cart.mall.com/addToCart?skuId=&quot; + skuId + &quot;&amp;num=&quot; + num;
+});
+</code></pre>
+<ol start="2">
+<li>处理<br>
+通过传入skuId和num可以查询商品的具体信息和组合属性等信息。将其保存在对应的Redis数据项中即可。然而需要注意：如果已经存在相关的商品，需要合并。</li>
+</ol>
+<pre><code class="language-java">@Slf4j
+@Service
+public class CartServiceImpl implements CartService {
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    @Autowired
+    ProductFeignService productFeignService;
+
+    @Autowired
+    ThreadPoolExecutor executor;
+
+    /**
+     * 添加到购物车方法
+     * @param skuId
+     * @param num
+     * @return
+     * @throws ExecutionException
+     * @throws InterruptedException
+     */
+    @Override
+    public CartItem addToCart(Long skuId, Integer num) throws ExecutionException, InterruptedException {
+        BoundHashOperations&lt;String, Object, Object&gt; cartOps = getCartOps();
+        String res = (String) cartOps.get(skuId.toString());
+        if (StringUtils.isEmpty(res)) {
+            //购物车没有此商品
+            //添加新商品
+            CartItem cartItem = new CartItem();
+            /********* 异步方式远程调用获取商品信息和sku的组合属性 *********/
+            CompletableFuture&lt;Void&gt; getSkuInfoTask = CompletableFuture.runAsync(() -&gt; {
+                //1.远程查询当前要添加的商品信息
+                R skuInfo = productFeignService.getSkuInfo(skuId);
+                SkuInfoVo data = skuInfo.getData(&quot;skuInfo&quot;, new TypeReference&lt;SkuInfoVo&gt;() {
+                });
+                //2.将商品信息添加到购物车
+                cartItem.setCheck(true);
+                cartItem.setCount(num);
+                cartItem.setImage(data.getSkuDefaultImg());
+                cartItem.setTitle(data.getSkuTitle());
+                cartItem.setSkuId(skuId);
+                cartItem.setPrice(data.getPrice());
+            }, executor);
+
+            CompletableFuture&lt;Void&gt; getSkuSaleAttrValues = CompletableFuture.runAsync(() -&gt; {
+                //3.远程查询sku的组合属性
+                List&lt;String&gt; values = productFeignService.getSkuSaleAttrValues(skuId);
+                cartItem.setSkuAttr(values);
+            }, executor);
+
+            CompletableFuture.allOf(getSkuInfoTask, getSkuSaleAttrValues).get();
+            /********* 在redis中存储数据 *********/
+            String s = JSON.toJSONString(cartItem);
+            cartOps.put(skuId.toString(), s);
+            return cartItem;
+        } else {
+            // 已经存在该商品
+            CartItem cartItem = JSON.parseObject(res, CartItem.class);
+            cartItem.setCount(cartItem.getCount() + num);
+            // 更新redis
+            cartOps.put(skuId.toString(), JSON.toJSONString(cartItem));
+            return cartItem;
+        }
+    }
+
+    /**
+     * 获取一个绑定了一个购物车项的操作
+     * @return
+     */
+    private BoundHashOperations&lt;String, Object, Object&gt; getCartOps() {
+        // 获得当前用户信息
+        UserInfoTo userInfoTo = CartInterceptor.threadLocal.get();
+        // 1.判断用户登录情况
+        String cartKey = &quot;&quot;;
+        if (userInfoTo.getUserId() != null) {
+            // 已经登录过，则添加到用户购物车中
+            // 例：mall:cart:1
+            cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserId();
+        } else {
+            //使用user-key标识临时用户
+            cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        }
+        // 绑定一个Hash项执行一系列增删改查操作
+        BoundHashOperations&lt;String, Object, Object&gt; operations = redisTemplate.boundHashOps(cartKey);
+        return operations;
+    }
+}
+</code></pre>
+<h3 id="添加到购物车进阶调整">添加到购物车：进阶调整</h3>
+<p><strong>防止重复提交</strong><br>
+在提交成功页面如果反复刷新会重复提交添加购物车的请求，需要做出调整。原因是Controller跳转到成功页采用的转发而非重定向方式。更改为重定向到成功页面，同时添加上一个RedirectAttributes带上skuId作为参数，展示页面每次访问都查询一遍当前id的购物车内容。</p>
+<pre><code class="language-java">@GetMapping(&quot;/addToCart&quot;)
+public String addToCart(@RequestParam(&quot;skuId&quot;) Long skuId,
+                        @RequestParam(&quot;num&quot;) Integer num,
+                        RedirectAttributes ra) throws ExecutionException, InterruptedException {
+    CartItem cartItem = cartService.addToCart(skuId, num);
+    // 采用重定向方式，会添加到requestParam中
+    ra.addAttribute(&quot;skuId&quot;, skuId);
+    return &quot;redirect:http://cart.mall.com/addToCartSuccess.html&quot;;
+}
+
+/**
+    * 跳转到添加购物车成功页，总是会刷新数据
+    * @param skuId
+    * @param model
+    * @return
+    */
+@GetMapping(&quot;/addToCartSuccess.html&quot;)
+public String addToCartSuccessPage(@RequestParam(&quot;skuId&quot;) Long skuId,
+                                    Model model) {
+    // 重定向到成功页面，再次查一遍购物车即可。
+    CartItem cartItem = cartService.getCartItem(skuId);
+    model.addAttribute(&quot;item&quot;, cartItem);
+    return &quot;success&quot;;
+}
+</code></pre>
+<h2 id="获取和合并购物车">获取和合并购物车</h2>
+<p>合并购物车的逻辑是：当有用户登录后查看购物车，则会将cookie中保存的user-key所指示的临时购物车合并到用户购物车中，同时清空临时购物车。</p>
+<pre><code class="language-java">@Override
+public Cart getCart() throws ExecutionException, InterruptedException {
+    Cart cart = new Cart();
+    // 判断是否登录
+    UserInfoTo userInfoTo = CartInterceptor.threadLocal.get();
+    if (userInfoTo.getUserId() != null) {
+        // 登录了,需要考察合并的问题
+        // 如果临时购物车没有合并
+        String tmpCartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        List&lt;CartItem&gt; tmpCartItems = getCartItems(tmpCartKey);
+        if(tmpCartItems != null) {
+            // 临时购物车有数据不为空，要合并
+            // 此时在登录状态下，调用addToCart()一定会走登录的添加流程，直接添加即可
+            for (CartItem item : tmpCartItems) {
+                addToCart(item.getSkuId(), item.getCount());
+            }
+            // 清空临时购物车
+            clearCart(tmpCartKey);
+        }
+        // 合并结束，取出数据
+        String cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserId();
+        List&lt;CartItem&gt; cartItems = getCartItems(cartKey);
+        cart.setItems(cartItems);
+    } else {
+        // 没登陆
+        String cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        List&lt;CartItem&gt; cartItems = getCartItems(cartKey);
+        cart.setItems(cartItems);
+    }
+    return cart;
+}
+</code></pre>
+<h2 id="购物车中的其他操作">购物车中的其他操作</h2>
+<h3 id="选中购物项">选中购物项</h3>
+<pre><code class="language-java">@Override
+public void checkItem(Long skuId, Integer check) {
+    BoundHashOperations&lt;String, Object, Object&gt; cartOps = getCartOps();
+    //获取购物项并更改check状态
+    CartItem cartItem = getCartItem(skuId);
+    cartItem.setCheck(check == 1 ? true : false);
+    String s = JSON.toJSONString(cartItem);
+    cartOps.put(skuId.toString(), s);        
+}
+</code></pre>
+<h3 id="改变购物项数量">改变购物项数量</h3>
+<p>业务逻辑和上面基本一样，区别只在于修改数量项目。</p>
+<h3 id="删除购物项">删除购物项</h3>
+<p>逻辑更加简单，使用绑定hash的操作直接删除该项目即可</p>
+<p>最终的实现效果：<br>
+<img src="https://dxone1.github.io//post-images/1637981515113.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day15：认证服务]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/</id>
@@ -2161,219 +2509,6 @@ ES7及以后已经移除了Type，即索引之下就是文档<br>
 前端：vue组件和element-ui模板<br>
 Linux：centOS7 + docker<br>
 新技术规范：全局统一异常处理ExceptionHandler，JSR303后端数据校验，使用枚举类型定义业务状态码，VO视图实体和PO远程调用实体</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[电商项目 day 8：商品和仓库管理]]></title>
-        <id>https://dxone1.github.io/post/dian-shang-xiang-mu-day-8shang-pin-he-cang-ku-guan-li/</id>
-        <link href="https://dxone1.github.io/post/dian-shang-xiang-mu-day-8shang-pin-he-cang-ku-guan-li/">
-        </link>
-        <updated>2021-11-11T06:48:23.000Z</updated>
-        <content type="html"><![CDATA[<h2 id="spu组合搜索功能">SPU组合搜索功能</h2>
-<p><img src="https://dxone1.github.io//post-images/1636614407614.png" alt="" loading="lazy"><br>
-看到其中不仅有商品ID商品名等信息还有分类等组合查询</p>
-<pre><code class="language-java">@Override
-public PageUtils queryPageByCondition(Map&lt;String, Object&gt; params) {
-    QueryWrapper&lt;SpuInfoEntity&gt; wrapper = new QueryWrapper&lt;&gt;();
-    /**
-        * 根据以下信息组合查询
-        * status:
-        * key:
-        * brandId: 0
-        * catelogId: 0
-        */
-    String key = (String) params.get(&quot;key&quot;);
-    if(!StringUtils.isEmpty(key)) {
-        wrapper.and(w -&gt; {
-            w.eq(&quot;id&quot;, key).or().like(&quot;spu_name&quot;, key);
-        });
-    }
-    String status = (String) params.get(&quot;status&quot;);
-    if(!StringUtils.isEmpty(status)) {
-        wrapper.eq(&quot;publish_status&quot;, status);
-
-    }
-    String brandId = (String) params.get(&quot;brandId&quot;);
-    if(!StringUtils.isEmpty(brandId)) {
-        wrapper.eq(&quot;brand_id&quot;, brandId);
-    }
-    String catelogId = (String) params.get(&quot;catelogId&quot;);
-    if(!StringUtils.isEmpty(catelogId)) {
-        wrapper.eq(&quot;catalog_id&quot;, catelogId);
-    }
-    IPage&lt;SpuInfoEntity&gt; page = this.page(new Query&lt;SpuInfoEntity&gt;().getPage(params),
-            wrapper);
-    return new PageUtils(page);
-}
-</code></pre>
-<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1636615251501.png" alt="" loading="lazy"></figure>
-<h2 id="sku检索功能">SKU检索功能</h2>
-<p>一样的内容，组合检索<br>
-<img src="https://dxone1.github.io//post-images/1636617236425.png" alt="" loading="lazy"></p>
-<h2 id="仓库维护">仓库维护</h2>
-<figure data-type="image" tabindex="2"><img src="https://dxone1.github.io//post-images/1636618921114.png" alt="" loading="lazy"></figure>
-<h2 id="商品库存">商品库存</h2>
-<p>请求 URL: http://localhost:88/api/ware/waresku/list?t=1636618949796&amp;page=1&amp;limit=10&amp;skuId=&amp;wareId=</p>
-<pre><code class="language-txt">t: 1636618949796
-page: 1
-limit: 10
-skuId: 
-wareId: 
-</code></pre>
-<h2 id="库存管理">库存管理</h2>
-<p>注意，生产环境中不能直接而在商品库存添加库存，而是通过采购单来进行维护添加。流程是：<br>
-采购需求(合并整单) -&gt; 采购单 -&gt; 库存添加<br>
-<img src="https://dxone1.github.io//post-images/1636619627154.png" alt="" loading="lazy"></p>
-<ol>
-<li>采购需求整单的逻辑<br>
-<img src="https://dxone1.github.io//post-images/1636620152697.png" alt="" loading="lazy"><br>
-在采购单页面可以创建新增的采购单，在采购需求合并整单的时候需要将其合并到该单中。需要能够查询采购单。<br>
-<img src="https://dxone1.github.io//post-images/1636620313865.png" alt="" loading="lazy"><br>
-接口：http://localhost:88/api/ware/purchase/unreceive/list?t=1636620326054<br>
-定义如下：<br>
-<img src="https://dxone1.github.io//post-images/1636620731059.png" alt="" loading="lazy"><br>
-所以查询所有新建/已分配的采购单（都还没有出发采购）<br>
-合并采购需求发送一个POST请求：<br>
-请求 URL: http://localhost:88/api/ware/purchase/merge<br>
-<img src="https://dxone1.github.io//post-images/1636620991832.png" alt="" loading="lazy"><br>
-也有可能不提交采购单而快速创建新单，则请求体中没有purchaseId，必须自动创建。<br>
-编写功能</li>
-</ol>
-<pre><code class="language-java">@Transactional
-@Override
-public void mergePurchase(MerageVo merageVo) {
-    Long purchaseId = merageVo.getPurchaseId();
-    // 没有采购单ID要新建一个采购单
-    if(purchaseId == null) {
-        PurchaseEntity purchaseEntity = new PurchaseEntity();
-        purchaseEntity.setStatus(WareConstant.PurchaseStatusEnum.CREATED.getCode());
-        purchaseEntity.setCreateTime(new Date());
-        purchaseEntity.setUpdateTime(new Date());
-        this.save(purchaseEntity);
-        // 新建的采购单的ID
-        purchaseId = purchaseEntity.getId();
-    }
-    // 把采购单信息保存到采购需求中
-    List&lt;Long&gt; items = merageVo.getItems();
-    Long finalPurchaseId = purchaseId;
-    List&lt;PurchaseDetailEntity&gt; collect = items.stream().map(i -&gt; {
-        PurchaseDetailEntity detailEntity = new PurchaseDetailEntity();
-        detailEntity.setId(i);
-        detailEntity.setPurchaseId(finalPurchaseId);
-        detailEntity.setStatus(WareConstant.PurchaseDetailEnum.ASSIGNED.getCode());
-        return detailEntity;
-    }).collect(Collectors.toList());
-    purchaseDetailService.updateBatchById(collect);
-}
-</code></pre>
-<ol start="2">
-<li>领取采购单<br>
-在采购单被分配后需要人员领取，领取之后状态需要变化<br>
-当采购完成后也需要结束采购<br>
-这两个功能的发出使用postMan进行模拟，本项目不涉及其页面和业务的开发，领取采购单的APP模拟如下：<br>
-<img src="https://dxone1.github.io//post-images/1636623430355.png" alt="" loading="lazy"></li>
-</ol>
-<pre><code class="language-java">@Override
-public void received(List&lt;Long&gt; ids) {
-    //1. 确认当前采购单是新建/已分配
-    List&lt;PurchaseEntity&gt; collect = ids.stream().map(id -&gt; {
-        PurchaseEntity purchaseEntity = this.getById(id);
-        return purchaseEntity;
-    }).filter(item -&gt; {
-        // 必须是新建/已分配的采购单
-        return item.getStatus() == WareConstant.PurchaseStatusEnum.CREATED.getCode() ||
-                item.getStatus() == WareConstant.PurchaseStatusEnum.ASSIGNED.getCode();
-    }).map(item -&gt; {
-        //2. 改变采购单的状态
-        item.setStatus(WareConstant.PurchaseStatusEnum.RECEIVED.getCode());
-        item.setUpdateTime(new Date());
-        return item;
-    }).collect(Collectors.toList());
-
-    // 实际更新采购单状态
-    this.updateBatchById(collect);
-
-    //3. 改变采购单采购项的状态
-    collect.forEach(item -&gt; {
-        Long purchaseId = item.getId();
-        List&lt;PurchaseDetailEntity&gt; purchaseDetailEntities = purchaseDetailService.listDetailByPurchaseId(purchaseId);
-        List&lt;PurchaseDetailEntity&gt; detailEntities = purchaseDetailEntities.stream().map(entity -&gt; {
-            PurchaseDetailEntity purchaseDetailEntity = new PurchaseDetailEntity();
-            purchaseDetailEntity.setId(entity.getId());
-            purchaseDetailEntity.setStatus(WareConstant.PurchaseDetailEnum.BUYING.getCode());
-            return purchaseDetailEntity;
-        }).collect(Collectors.toList());
-        purchaseDetailService.updateBatchById(detailEntities);
-    });
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1636624822561.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1636624825855.png" alt="" loading="lazy"></p>
-<h2 id="完成采购">完成采购</h2>
-<p>完成采购后会发出一个请求，必须进行商品库存的服务调用。<br>
-<img src="https://dxone1.github.io//post-images/1636633148544.png" alt="" loading="lazy"></p>
-<pre><code class="language-java">@Override
-public void addStock(Long skuId, Long wareId, Integer skuNum) {
-    // 1. 如果还没有库存记录则新增
-    List&lt;WareSkuEntity&gt; entities = wareSkuDao.selectList(new QueryWrapper&lt;WareSkuEntity&gt;().eq(&quot;sku_id&quot;, skuId).eq(&quot;ware_id&quot;, wareId));
-    if(entities == null || entities.size() == 0) {
-        WareSkuEntity skuEntity = new WareSkuEntity();
-        skuEntity.setSkuId(skuId);
-        skuEntity.setStock(skuNum);
-        skuEntity.setWareId(wareId);
-        skuEntity.setStockLocked(0);
-        //远程调用查询skuName冗余备份
-        // TODO 还有什么办法不回滚处理异常
-        try {
-            R info = productFeignService.info(skuId);
-            Map&lt;String, Object&gt; data = (Map&lt;String, Object&gt;) info.get(&quot;skuInfo&quot;);
-            if(info.getCode() == 0) {
-                skuEntity.setSkuName((String) data.get(&quot;skuName&quot;));
-            }
-        } catch (Exception e) {
-
-        }
-        wareSkuDao.insert(skuEntity);
-    } else {
-        // 否则增加库存
-        wareSkuDao.addStock(skuId, wareId, skuNum);
-    }
-}
-</code></pre>
-<p>测试实例：<br>
-<img src="https://dxone1.github.io//post-images/1636638183522.png" alt="" loading="lazy"></p>
-<h2 id="spu管理">Spu管理</h2>
-<p>也是分为展示、修改两个功能模块</p>
-<pre><code class="language-java">/**
-    * 展示SPU属性
-    * @param spuId
-    * @return
-    */
-@Override
-public List&lt;ProductAttrValueEntity&gt; baseAttrListForSpu(Long spuId) {
-    List&lt;ProductAttrValueEntity&gt; entities = this.baseMapper.selectList(new QueryWrapper&lt;ProductAttrValueEntity&gt;().eq(&quot;spu_id&quot;, spuId));
-    return entities;
-}
-
-/**
-    * 修改SPU属性
-    * @param spuId
-    * @param entities
-    */
-@Transactional
-@Override
-public void updateSpuAttr(Long spuId, List&lt;ProductAttrValueEntity&gt; entities) {
-    //1. 删除原有属性
-    this.baseMapper.delete(new QueryWrapper&lt;ProductAttrValueEntity&gt;().eq(&quot;spu_id&quot;, spuId));
-    //2. 插入新属性
-    List&lt;ProductAttrValueEntity&gt; collect = entities.stream().map(item -&gt; {
-        item.setSpuId(spuId);
-        return item;
-    }).collect(Collectors.toList());
-    this.saveBatch(collect);
-}
-</code></pre>
-<figure data-type="image" tabindex="3"><img src="https://dxone1.github.io//post-images/1636694892686.png" alt="" loading="lazy"></figure>
 ]]></content>
     </entry>
 </feed>

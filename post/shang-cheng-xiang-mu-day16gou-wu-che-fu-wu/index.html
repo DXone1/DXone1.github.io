@@ -1,0 +1,538 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day16：购物车服务 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1637981517513">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day16：购物车服务 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="配置环境
+新启动一个模块，配置好端口，应用名，nacos地址，启动服务注册和发现与FeignClients。
+server.port=30000
+spring.application.name=mall-cart
+
+spring.cloud..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1637981517513" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day16：购物车服务
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-11-26
+              </span>
+              <span>
+                10 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <h2 id="配置环境">配置环境</h2>
+<p>新启动一个模块，配置好端口，应用名，nacos地址，启动服务注册和发现与FeignClients。</p>
+<pre><code class="language-xml">server.port=30000
+spring.application.name=mall-cart
+
+spring.cloud.nacos.discovery.server-addr=127.0.0.1:8848
+</code></pre>
+<p>将网关配置到该服务的转发</p>
+<h2 id="购物车功能">购物车功能</h2>
+<p>购物车需要有离线购物车功能，未登陆状态添加到购物车中会保存到这里。<br>
+在登录状态，购物车会将临时购物车项目合并到购物车中，同时清除离线购物车。</p>
+<ul>
+<li>用户可以使用购物车一起结算下单</li>
+<li>给购物车添加商品</li>
+<li>用户可以查询自己的购物车</li>
+<li>用户可以在购物车中修改购买商品的数量。</li>
+<li>用户可以在购物车中删除商品。</li>
+<li>选中不选中商品</li>
+<li>在购物车中展示商品优惠信息</li>
+<li>提示购物车商品价格变化</li>
+</ul>
+<p>技术选择：</p>
+<ul>
+<li>用户购物车：使用Redis+持久化策略实现</li>
+<li>临时购物车：使用Redis实现</li>
+</ul>
+<p>Redis数据结构：<br>
+每一条商品都是这样的结构：</p>
+<pre><code class="language-json">{
+    skuId: 2131241,
+    check: true,
+    title: &quot;Apple iphone.....&quot;,
+    defaultImage: &quot;...&quot;,
+    price: 4999,
+    count: 1,
+    totalPrice: 4999,
+    skuSaleVO: {...}
+}
+</code></pre>
+<p>每个购物车的value，都是一个双层hash类型（Hash表），这样每件商品的每一个属性都能快速的查找和修改。</p>
+<pre><code class="language-yaml">key: cart_id
+value: {
+  { 
+    key: sku_id
+    value : {
+      {key: check, value: true}
+      {key: totalPrice, value: 4999}     
+      ......      
+    }
+  }
+}
+</code></pre>
+<h2 id="功能编写">功能编写</h2>
+<ol>
+<li>VO的编写<br>
+根据上面的分析，购物车中每个商品的数据结构应该是一个双层的hash表，据此编写VO封装。每个cartItem中要有如下数据</li>
+</ol>
+<pre><code class="language-java">public class CartItem {
+    private Long skuId;
+    //是否选中
+    private Boolean check = true;
+    private String title;
+    private String image;
+    //sku销售属性
+    private List&lt;String&gt; skuAttr;
+    private BigDecimal price;
+    private Integer count;
+    private BigDecimal totalPrice;
+}
+</code></pre>
+<ol start="2">
+<li>整合SpringSession<br>
+因为需要从Session获取登录信息，所以也需要整合Spring Session实现共享Session：得到登录信息。</li>
+</ol>
+<h3 id="使用threadlocal和拦截器进行用户身份鉴定">使用ThreadLocal和拦截器进行用户身份鉴定</h3>
+<ul>
+<li>如果登录：则session中有用户信息</li>
+<li>如果没登录：则通过cookie中记录一个user-key来标识用户身份</li>
+<li>没有登录且没有user-key，需要给用户创建一个这个cookie</li>
+</ul>
+<p>要实现如上业务逻辑，可以考虑使用一个拦截器实现。</p>
+<pre><code class="language-java">public class CartInterceptor implements HandlerInterceptor {
+
+    public static ThreadLocal&lt;UserInfoTo&gt; threadLocal = new ThreadLocal&lt;&gt;();
+    /**
+     * 执行前拦截
+     * @param request
+     * @param response
+     * @param handler
+     * @return
+     * @throws Exception
+     */
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        UserInfoTo userInfoTo = new UserInfoTo();
+
+        HttpSession session = request.getSession();
+        MemberRespVo member = (MemberRespVo) session.getAttribute(AuthServerConstant.LOGIN_USER);
+        if(member != null) {
+            // 用户登陆
+            userInfoTo.setUserId(member.getId());
+        }
+        Cookie[] cookies = request.getCookies();
+        if(cookies != null &amp;&amp; cookies.length &gt; 0) {
+            for (Cookie cookie : cookies) {
+                String name = cookie.getName();
+                if(name.equals(CartConstant.TEMP_USER_COOKIE_NAME)) {
+                    userInfoTo.setUserKey(cookie.getValue());
+                    // 标记为已经存在临时用户
+                    userInfoTo.setTempUser(true);
+                }
+            }
+        }
+        //第一次非登录使用时必须创建临时用户
+        if(StringUtils.isEmpty(userInfoTo.getUserKey())) {
+            String uuid = UUID.randomUUID().toString();
+            userInfoTo.setUserKey(uuid);
+        }
+
+        //目标方法执行前放入threadLocal
+        threadLocal.set(userInfoTo);
+        return true;
+    }
+
+    /**
+     * 业务执行之后要通知浏览器保存一个cookie
+     * 其中存放了user-key，这样以后浏览器就可以使用这个cookie作为临时用户访问临时购物车
+     * @param request
+     * @param response
+     * @param handler
+     * @param modelAndView
+     * @throws Exception
+     */
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        UserInfoTo userInfoTo = threadLocal.get();
+        if(!userInfoTo.isTempUser()) {
+            Cookie cookie = new Cookie(CartConstant.TEMP_USER_COOKIE_NAME, userInfoTo.getUserKey());
+            cookie.setDomain(&quot;mall.com&quot;);
+            cookie.setMaxAge(CartConstant.TEMP_USER_COOKIE_TIMEOUT);
+            response.addCookie(cookie);
+        }
+        threadLocal.remove();
+    }
+}
+</code></pre>
+<p>记得在一个继承了<code>WebMvcConfigurer</code>的配置类中将该拦截器注册进调用链中。因为拦截器处理到最后的返回都在同一个线程内执行，所以考虑使用ThreadLoacl保证线程内的安全和共享。</p>
+<h3 id="页面逻辑关系">页面逻辑关系</h3>
+<ol>
+<li>在商品详情页点击添加购物车后，成功跳转到成功页，同时会执行商品添加逻辑。</li>
+<li>首页和检索页通过点击我的购物车都会跳转到cartList页面</li>
+<li>首页跳转<br>
+......</li>
+</ol>
+<h3 id="一个坑的解决">一个坑的解决</h3>
+<p>在Nginx中配置http stream转发时，因为Linux服务器设置在虚拟机中，网段与本机的外部ip不同，一直以来设置本机外部ip的转发速度都很差。<br>
+解决方案：<br>
+将其ip设置为以太网适配器 VMware Network Adapter VMnet8所指使的虚拟ip，速度大幅提升</p>
+<h2 id="添加购物车">添加购物车</h2>
+<h3 id="添加到购物车基本功能">添加到购物车：基本功能</h3>
+<ol>
+<li>添加到购物车时页面传参skuId和数量</li>
+</ol>
+<pre><code class="language-js">$(&quot;#addToCartA&quot;).click(function () {
+    var num = $(&quot;#numInput&quot;).val();
+    var skuId = $(this).attr(&quot;skuId&quot;);
+    location.href = &quot;http://cart.mall.com/addToCart?skuId=&quot; + skuId + &quot;&amp;num=&quot; + num;
+});
+</code></pre>
+<ol start="2">
+<li>处理<br>
+通过传入skuId和num可以查询商品的具体信息和组合属性等信息。将其保存在对应的Redis数据项中即可。然而需要注意：如果已经存在相关的商品，需要合并。</li>
+</ol>
+<pre><code class="language-java">@Slf4j
+@Service
+public class CartServiceImpl implements CartService {
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    @Autowired
+    ProductFeignService productFeignService;
+
+    @Autowired
+    ThreadPoolExecutor executor;
+
+    /**
+     * 添加到购物车方法
+     * @param skuId
+     * @param num
+     * @return
+     * @throws ExecutionException
+     * @throws InterruptedException
+     */
+    @Override
+    public CartItem addToCart(Long skuId, Integer num) throws ExecutionException, InterruptedException {
+        BoundHashOperations&lt;String, Object, Object&gt; cartOps = getCartOps();
+        String res = (String) cartOps.get(skuId.toString());
+        if (StringUtils.isEmpty(res)) {
+            //购物车没有此商品
+            //添加新商品
+            CartItem cartItem = new CartItem();
+            /********* 异步方式远程调用获取商品信息和sku的组合属性 *********/
+            CompletableFuture&lt;Void&gt; getSkuInfoTask = CompletableFuture.runAsync(() -&gt; {
+                //1.远程查询当前要添加的商品信息
+                R skuInfo = productFeignService.getSkuInfo(skuId);
+                SkuInfoVo data = skuInfo.getData(&quot;skuInfo&quot;, new TypeReference&lt;SkuInfoVo&gt;() {
+                });
+                //2.将商品信息添加到购物车
+                cartItem.setCheck(true);
+                cartItem.setCount(num);
+                cartItem.setImage(data.getSkuDefaultImg());
+                cartItem.setTitle(data.getSkuTitle());
+                cartItem.setSkuId(skuId);
+                cartItem.setPrice(data.getPrice());
+            }, executor);
+
+            CompletableFuture&lt;Void&gt; getSkuSaleAttrValues = CompletableFuture.runAsync(() -&gt; {
+                //3.远程查询sku的组合属性
+                List&lt;String&gt; values = productFeignService.getSkuSaleAttrValues(skuId);
+                cartItem.setSkuAttr(values);
+            }, executor);
+
+            CompletableFuture.allOf(getSkuInfoTask, getSkuSaleAttrValues).get();
+            /********* 在redis中存储数据 *********/
+            String s = JSON.toJSONString(cartItem);
+            cartOps.put(skuId.toString(), s);
+            return cartItem;
+        } else {
+            // 已经存在该商品
+            CartItem cartItem = JSON.parseObject(res, CartItem.class);
+            cartItem.setCount(cartItem.getCount() + num);
+            // 更新redis
+            cartOps.put(skuId.toString(), JSON.toJSONString(cartItem));
+            return cartItem;
+        }
+    }
+
+    /**
+     * 获取一个绑定了一个购物车项的操作
+     * @return
+     */
+    private BoundHashOperations&lt;String, Object, Object&gt; getCartOps() {
+        // 获得当前用户信息
+        UserInfoTo userInfoTo = CartInterceptor.threadLocal.get();
+        // 1.判断用户登录情况
+        String cartKey = &quot;&quot;;
+        if (userInfoTo.getUserId() != null) {
+            // 已经登录过，则添加到用户购物车中
+            // 例：mall:cart:1
+            cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserId();
+        } else {
+            //使用user-key标识临时用户
+            cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        }
+        // 绑定一个Hash项执行一系列增删改查操作
+        BoundHashOperations&lt;String, Object, Object&gt; operations = redisTemplate.boundHashOps(cartKey);
+        return operations;
+    }
+}
+</code></pre>
+<h3 id="添加到购物车进阶调整">添加到购物车：进阶调整</h3>
+<p><strong>防止重复提交</strong><br>
+在提交成功页面如果反复刷新会重复提交添加购物车的请求，需要做出调整。原因是Controller跳转到成功页采用的转发而非重定向方式。更改为重定向到成功页面，同时添加上一个RedirectAttributes带上skuId作为参数，展示页面每次访问都查询一遍当前id的购物车内容。</p>
+<pre><code class="language-java">@GetMapping(&quot;/addToCart&quot;)
+public String addToCart(@RequestParam(&quot;skuId&quot;) Long skuId,
+                        @RequestParam(&quot;num&quot;) Integer num,
+                        RedirectAttributes ra) throws ExecutionException, InterruptedException {
+    CartItem cartItem = cartService.addToCart(skuId, num);
+    // 采用重定向方式，会添加到requestParam中
+    ra.addAttribute(&quot;skuId&quot;, skuId);
+    return &quot;redirect:http://cart.mall.com/addToCartSuccess.html&quot;;
+}
+
+/**
+    * 跳转到添加购物车成功页，总是会刷新数据
+    * @param skuId
+    * @param model
+    * @return
+    */
+@GetMapping(&quot;/addToCartSuccess.html&quot;)
+public String addToCartSuccessPage(@RequestParam(&quot;skuId&quot;) Long skuId,
+                                    Model model) {
+    // 重定向到成功页面，再次查一遍购物车即可。
+    CartItem cartItem = cartService.getCartItem(skuId);
+    model.addAttribute(&quot;item&quot;, cartItem);
+    return &quot;success&quot;;
+}
+</code></pre>
+<h2 id="获取和合并购物车">获取和合并购物车</h2>
+<p>合并购物车的逻辑是：当有用户登录后查看购物车，则会将cookie中保存的user-key所指示的临时购物车合并到用户购物车中，同时清空临时购物车。</p>
+<pre><code class="language-java">@Override
+public Cart getCart() throws ExecutionException, InterruptedException {
+    Cart cart = new Cart();
+    // 判断是否登录
+    UserInfoTo userInfoTo = CartInterceptor.threadLocal.get();
+    if (userInfoTo.getUserId() != null) {
+        // 登录了,需要考察合并的问题
+        // 如果临时购物车没有合并
+        String tmpCartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        List&lt;CartItem&gt; tmpCartItems = getCartItems(tmpCartKey);
+        if(tmpCartItems != null) {
+            // 临时购物车有数据不为空，要合并
+            // 此时在登录状态下，调用addToCart()一定会走登录的添加流程，直接添加即可
+            for (CartItem item : tmpCartItems) {
+                addToCart(item.getSkuId(), item.getCount());
+            }
+            // 清空临时购物车
+            clearCart(tmpCartKey);
+        }
+        // 合并结束，取出数据
+        String cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserId();
+        List&lt;CartItem&gt; cartItems = getCartItems(cartKey);
+        cart.setItems(cartItems);
+    } else {
+        // 没登陆
+        String cartKey = CartConstant.CART_PREFIX + userInfoTo.getUserKey();
+        List&lt;CartItem&gt; cartItems = getCartItems(cartKey);
+        cart.setItems(cartItems);
+    }
+    return cart;
+}
+</code></pre>
+<h2 id="购物车中的其他操作">购物车中的其他操作</h2>
+<h3 id="选中购物项">选中购物项</h3>
+<pre><code class="language-java">@Override
+public void checkItem(Long skuId, Integer check) {
+    BoundHashOperations&lt;String, Object, Object&gt; cartOps = getCartOps();
+    //获取购物项并更改check状态
+    CartItem cartItem = getCartItem(skuId);
+    cartItem.setCheck(check == 1 ? true : false);
+    String s = JSON.toJSONString(cartItem);
+    cartOps.put(skuId.toString(), s);        
+}
+</code></pre>
+<h3 id="改变购物项数量">改变购物项数量</h3>
+<p>业务逻辑和上面基本一样，区别只在于修改数量项目。</p>
+<h3 id="删除购物项">删除购物项</h3>
+<p>逻辑更加简单，使用绑定hash的操作直接删除该项目即可</p>
+<p>最终的实现效果：<br>
+<img src="https://dxone1.github.io//post-images/1637981515113.png" alt="" loading="lazy"></p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E9%85%8D%E7%BD%AE%E7%8E%AF%E5%A2%83">配置环境</a></li>
+<li><a href="#%E8%B4%AD%E7%89%A9%E8%BD%A6%E5%8A%9F%E8%83%BD">购物车功能</a></li>
+<li><a href="#%E5%8A%9F%E8%83%BD%E7%BC%96%E5%86%99">功能编写</a>
+<ul>
+<li><a href="#%E4%BD%BF%E7%94%A8threadlocal%E5%92%8C%E6%8B%A6%E6%88%AA%E5%99%A8%E8%BF%9B%E8%A1%8C%E7%94%A8%E6%88%B7%E8%BA%AB%E4%BB%BD%E9%89%B4%E5%AE%9A">使用ThreadLocal和拦截器进行用户身份鉴定</a></li>
+<li><a href="#%E9%A1%B5%E9%9D%A2%E9%80%BB%E8%BE%91%E5%85%B3%E7%B3%BB">页面逻辑关系</a></li>
+<li><a href="#%E4%B8%80%E4%B8%AA%E5%9D%91%E7%9A%84%E8%A7%A3%E5%86%B3">一个坑的解决</a></li>
+</ul>
+</li>
+<li><a href="#%E6%B7%BB%E5%8A%A0%E8%B4%AD%E7%89%A9%E8%BD%A6">添加购物车</a>
+<ul>
+<li><a href="#%E6%B7%BB%E5%8A%A0%E5%88%B0%E8%B4%AD%E7%89%A9%E8%BD%A6%E5%9F%BA%E6%9C%AC%E5%8A%9F%E8%83%BD">添加到购物车：基本功能</a></li>
+<li><a href="#%E6%B7%BB%E5%8A%A0%E5%88%B0%E8%B4%AD%E7%89%A9%E8%BD%A6%E8%BF%9B%E9%98%B6%E8%B0%83%E6%95%B4">添加到购物车：进阶调整</a></li>
+</ul>
+</li>
+<li><a href="#%E8%8E%B7%E5%8F%96%E5%92%8C%E5%90%88%E5%B9%B6%E8%B4%AD%E7%89%A9%E8%BD%A6">获取和合并购物车</a></li>
+<li><a href="#%E8%B4%AD%E7%89%A9%E8%BD%A6%E4%B8%AD%E7%9A%84%E5%85%B6%E4%BB%96%E6%93%8D%E4%BD%9C">购物车中的其他操作</a>
+<ul>
+<li><a href="#%E9%80%89%E4%B8%AD%E8%B4%AD%E7%89%A9%E9%A1%B9">选中购物项</a></li>
+<li><a href="#%E6%94%B9%E5%8F%98%E8%B4%AD%E7%89%A9%E9%A1%B9%E6%95%B0%E9%87%8F">改变购物项数量</a></li>
+<li><a href="#%E5%88%A0%E9%99%A4%E8%B4%AD%E7%89%A9%E9%A1%B9">删除购物项</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/">
+              <h3 class="post-title">
+                商城项目 day15：认证服务
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
