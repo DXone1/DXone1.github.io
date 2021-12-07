@@ -1,0 +1,728 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商城项目 day19：瞬时高并发-秒杀业务 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1638849872809">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="商城项目 day19：瞬时高并发-秒杀业务 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="秒杀具有瞬间高并发的特点， 针对这一特点， 必须要做限流 + 异步 + 缓存（页面静态化）+ 独立部署。
+后台上架
+在后台系统秒杀业务的上架页面，可以上架秒杀场次，并关联该场次的秒杀商品。需要修改相关后台程序完成对应场次商品的回显。
+@Ov..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1638849872809" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              商城项目 day19：瞬时高并发-秒杀业务
+            </h2>
+            <div class="post-info">
+              <span>
+                2021-12-04
+              </span>
+              <span>
+                16 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>秒杀具有瞬间高并发的特点， 针对这一特点， 必须要做限流 + 异步 + 缓存（页面静态化）+ 独立部署。</p>
+<h2 id="后台上架">后台上架</h2>
+<p>在后台系统秒杀业务的上架页面，可以上架秒杀场次，并关联该场次的秒杀商品。需要修改相关后台程序完成对应场次商品的回显。</p>
+<pre><code class="language-java">@Override
+public PageUtils queryPage(Map&lt;String, Object&gt; params) {
+    QueryWrapper&lt;SeckillSkuRelationEntity&gt; queryWrapper = new QueryWrapper&lt;&gt;();
+    //获得场次id
+    String promotionSessionId = (String) params.get(&quot;promotionSessionId&quot;);
+    if(!StringUtils.isEmpty(promotionSessionId)) {
+        queryWrapper.eq(&quot;promotion_session_id&quot;, promotionSessionId);
+    }
+    IPage&lt;SeckillSkuRelationEntity&gt; page = this.page(
+            new Query&lt;SeckillSkuRelationEntity&gt;().getPage(params),
+            queryWrapper
+    );
+    return new PageUtils(page);
+}
+</code></pre>
+<p>后台系统功能如下：<br>
+<img src="https://dxone1.github.io//post-images/1638625203321.png" alt="" loading="lazy"></p>
+<h2 id="秒杀服务">秒杀服务</h2>
+<p>使用独立部署的秒杀服务，限流方式包括：</p>
+<ol>
+<li>前端限流， 一些高并发的网站直接在前端页面开始限流， 例如： 小米的验证码设计</li>
+<li>nginx 限流， 直接负载部分请求到错误的静态页面： 令牌算法 漏斗算法</li>
+<li>网关限流， 限流的过滤器</li>
+<li>代码中使用分布式信号量</li>
+<li>rabbitmq 限流（能者多劳： chanel.basicQos(1)） ， 保证发挥所有服务器的性能。</li>
+</ol>
+<h3 id="定时上架秒杀商品">定时上架秒杀商品</h3>
+<h4 id="定时任务">定时任务</h4>
+<p>定时任务通过书写cron表达式编排，类似Linux中的cronTable。<br>
+<img src="https://dxone1.github.io//post-images/1638626407056.png" alt="" loading="lazy"></p>
+<pre><code class="language-java">特殊字符：
+    ， ： 枚举；
+    (cron=&quot;7,9,23 * * * * ?&quot;)： 任意时刻的 7,9， 23 秒启动这个任务；
+    -： 范围：
+    (cron=&quot;7-20 * * * * ?&quot;):任意时刻的 7-20 秒之间， 每秒启动一次
+    *： 任意；
+    指定位置的任意时刻都可以
+    /： 步长；
+    (cron=&quot;7/5 * * * * ?&quot;)： 第 7 秒启动， 每 5 秒一次；
+    (cron=&quot;*/5 * * * * ?&quot;)： 任意秒启动， 每 5 秒一次；
+    ？ ： （出现在日和周几的位置） ： 为了防止日和周冲突， 在周和日上如果要写通配符使
+    用?
+    (cron=&quot;* * * 1 * ?&quot;)： 每月的 1 号， 启动这个任务；
+    L： （出现在日和周的位置） ”，
+    last： 最后一个
+    (cron=&quot;* * * ? * 3L&quot;)： 每月的最后一个周二
+    W：
+    Work Day： 工作日
+    (cron=&quot;* * * W * ?&quot;)： 每个月的工作日触发
+    (cron=&quot;* * * LW * ?&quot;)： 每个月的最后一个工作日触发
+    #： 第几个
+    (cron=&quot;* * * ? * 5#2&quot;)： 每个月的第 2 个周 4
+</code></pre>
+<p>注意：cron任务默认是阻塞的，如果业务时间过长就会导致定时任务执行和预期不符。可以采用异步编排方式执行或是定时任务线程池。设置spring.task.scheduling.pool.size</p>
+<ol>
+<li>使用线程池+异步编排</li>
+<li>使用<code>spring.task.scheduling.pool.size</code>设置定时任务线程池大小</li>
+<li>使用异步任务</li>
+</ol>
+<pre><code class="language-java">@Slf4j
+@Component
+@EnableAsync
+@EnableScheduling
+public class HelloSchedule {
+
+    @Async
+    @Scheduled(cron = &quot;* * * * * ?&quot;)
+    public void hello() {
+        log.info(&quot;hello&quot;);
+        try {
+            Thread.sleep(3000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+</code></pre>
+<h4 id="定时商品上架">定时商品上架</h4>
+<ol>
+<li>先查出最近三天的所有秒杀活动场次</li>
+</ol>
+<pre><code class="language-java">@Override
+public List&lt;SeckillSessionEntity&gt; getLatest3DaySession() {
+    List&lt;SeckillSessionEntity&gt; list = list(new QueryWrapper&lt;SeckillSessionEntity&gt;().between(&quot;start_time&quot;, startTime(), endTime()));
+    return list;
+}
+
+private String startTime() {
+    LocalDate now = LocalDate.now();
+    LocalTime min = LocalTime.MIN;
+    LocalDateTime start = LocalDateTime.of(now, min);
+    String format = start.format(DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;));
+    return format;
+}
+
+private String endTime() {
+    LocalDate now = LocalDate.now();
+    LocalDate plus2 = now.plusDays(2);
+    LocalTime max = LocalTime.MAX;
+    LocalDateTime end = LocalDateTime.of(plus2, max);
+    String format = end.format(DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;));
+    return format;
+}
+</code></pre>
+<ol start="2">
+<li>查出这些场次的所有涉及商品并上架</li>
+</ol>
+<pre><code class="language-java">@Override
+public List&lt;SeckillSessionEntity&gt; getLatest3DaySession() {
+    //1.查出所有活动
+    List&lt;SeckillSessionEntity&gt; list = list(new QueryWrapper&lt;SeckillSessionEntity&gt;().between(&quot;start_time&quot;, startTime(), endTime()));
+    //2.封装活动关联的商品
+    if(list != null &amp;&amp; list.size() &gt; 0) {
+        List&lt;SeckillSessionEntity&gt; collect = list.stream().map(session -&gt; {
+            Long id = session.getId();
+            List&lt;SeckillSkuRelationEntity&gt; relationEntities = seckillSkuRelationService.list(new QueryWrapper&lt;SeckillSkuRelationEntity&gt;().eq(&quot;promotion_session_id&quot;, id));
+            session.setRelationSkus(relationEntities);
+            return session;
+        }).collect(Collectors.toList());
+        return collect;
+    }
+    return null;
+}
+</code></pre>
+<ol start="3">
+<li>上架<br>
+<img src="https://dxone1.github.io//post-images/1638694282995.png" alt="" loading="lazy"><br>
+需要在redis中存储两个信息：</li>
+</ol>
+<ul>
+<li>秒杀场次时间为key，该场次的所有商品的skuId为值</li>
+<li>Hash结构存储的商品id和商品信息</li>
+</ul>
+<p><strong>注意：这里面有两个重要的设计</strong></p>
+<ul>
+<li>在商品信息中携带一个随机码，防止事先取得而破坏公平</li>
+<li>在其中设置一个分布式信号量，这样就能很快的在redis中进行库存判断，应对大并发场景（使用Redisson）</li>
+</ul>
+<pre><code class="language-java">@Override
+public void uploadSeckillSkuLatest3Days() {
+    //扫描需要参与秒杀的活动
+    R session = couponFeignService.getLatest3DaySession();
+    if(session.getCode() == 0) {
+        //上架
+        List&lt;SeckillSessionsWithSkus&gt; sessionData = session.getData(new TypeReference&lt;List&lt;SeckillSessionsWithSkus&gt;&gt;() {
+        });
+        //上架商品缓存到redis中
+        //1.缓存活动信息
+        saveSessionInfos(sessionData);
+        //2.缓存活动关联商品信息
+        saveSessionSkuInfos(sessionData);
+    }
+}
+
+private void saveSessionInfos(List&lt;SeckillSessionsWithSkus&gt; sessions) {
+    sessions.stream().forEach(session -&gt; {
+        Long startTime = session.getStartTime().getTime();
+        Long endTime = session.getEndTime().getTime();
+        String key = SESSIONS_CACHE_PREFIX + startTime + &quot;_&quot; + endTime;
+        List&lt;String&gt; collect = session.getRelationSkus().stream().map(item -&gt; item.getSkuId().toString()).collect(Collectors.toList());
+        redisTemplate.opsForList().leftPushAll(key, collect);
+    });
+}
+
+private void saveSessionSkuInfos(List&lt;SeckillSessionsWithSkus&gt; sessions) {
+    sessions.stream().forEach(session -&gt; {
+        //绑定Hash操作
+        BoundHashOperations&lt;String, Object, Object&gt; ops = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+        session.getRelationSkus().stream().forEach(seckillSkuVo -&gt; {
+            SecKillSkuRedisTo redisTo = new SecKillSkuRedisTo();
+            //sku基本数据
+            R skuInfo = productFeignService.getSkuInfo(seckillSkuVo.getSkuId());
+            if(skuInfo.getCode() == 0) {
+                SkuInfoVo info = skuInfo.getData(&quot;skuInfo&quot;, new TypeReference&lt;SkuInfoVo&gt;() {
+                });
+                redisTo.setSkuInfo(info);
+            }
+
+            //sku秒杀信息
+            BeanUtils.copyProperties(seckillSkuVo, redisTo);
+
+            //设置商品的秒杀时间信息
+            redisTo.setStartTime(session.getStartTime().getTime());
+            redisTo.setEndTime(session.getEndTime().getTime());
+
+            //商品随机码
+            String token = UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;);
+            redisTo.setRandomCode(token);
+
+            //设置商品的分布式信号量：保障非常快速的完成商品库存判断
+            RSemaphore semaphore = redissonClient.getSemaphore(SKU_STOCK_SEMAPHORE_PREFIX + token);
+            semaphore.trySetPermits(seckillSkuVo.getSeckillCount());
+
+            String s = JSON.toJSONString(redisTo);
+            ops.put(seckillSkuVo.getSkuId().toString(), s);
+        });
+    });
+}
+</code></pre>
+<ol start="4">
+<li>幂等性问题的解决<br>
+在这种上架逻辑中会出现幂等性问题，即可能会出现多次重复上架。</li>
+</ol>
+<pre><code class="language-java">//1.首先保证同步，在使用之前先上分布式锁
+private final String upload_lock = &quot;seckill:upload:lock&quot;;
+
+/**
+    * 定时上架最近三天的秒杀商品
+    * 当天00：00：00 - 23：59：59
+    * 明天00：00：00 - 23：59：59
+    * 后天00：00：00 - 23：59：59
+    */
+@Scheduled(cron = &quot;*/3 * * * * ?&quot;)
+public void uploadSeckillSkuLatest3Days() {
+    log.info(&quot;上架秒杀商品信息&quot;);
+    RLock lock = redissonClient.getLock(upload_lock);
+    lock.lock(10, TimeUnit.SECONDS);
+    try {
+        seckillService.uploadSeckillSkuLatest3Days();
+    } finally {
+        lock.unlock();
+    }
+}
+//2.添加幂等性判断
+private void saveSessionInfos(List&lt;SeckillSessionsWithSkus&gt; sessions) {
+    sessions.stream().forEach(session -&gt; {
+        Long startTime = session.getStartTime().getTime();
+        Long endTime = session.getEndTime().getTime();
+        String key = SESSIONS_CACHE_PREFIX + startTime + &quot;_&quot; + endTime;
+        Boolean hasKey = redisTemplate.hasKey(key);
+        if(!hasKey) {
+            List&lt;String&gt; collect = session.getRelationSkus().stream().map(item -&gt; item.getPromotionSessionId() + &quot;_&quot; + item.getSkuId().toString()).collect(Collectors.toList());
+            redisTemplate.opsForList().leftPushAll(key, collect);
+        }
+    });
+}
+
+private void saveSessionSkuInfos(List&lt;SeckillSessionsWithSkus&gt; sessions) {
+    sessions.stream().forEach(session -&gt; {
+        //绑定Hash操作
+        BoundHashOperations&lt;String, Object, Object&gt; ops = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+        session.getRelationSkus().stream().forEach(seckillSkuVo -&gt; {
+            SecKillSkuRedisTo redisTo = new SecKillSkuRedisTo();
+            /**
+                * 幂等性:当场次_skuId匹配存在时即已经上架过，不再上架
+                */
+            if(!ops.hasKey(seckillSkuVo.getPromotionSessionId().toString() + &quot;_&quot; + seckillSkuVo.getSkuId().toString())) {
+                //sku基本数据
+                R skuInfo = productFeignService.getSkuInfo(seckillSkuVo.getSkuId());
+                if(skuInfo.getCode() == 0) {
+                    SkuInfoVo info = skuInfo.getData(&quot;skuInfo&quot;, new TypeReference&lt;SkuInfoVo&gt;() {
+                    });
+                    redisTo.setSkuInfo(info);
+                }
+
+                //sku秒杀信息
+                BeanUtils.copyProperties(seckillSkuVo, redisTo);
+
+                //设置商品的秒杀时间信息
+                redisTo.setStartTime(session.getStartTime().getTime());
+                redisTo.setEndTime(session.getEndTime().getTime());
+
+                //商品随机码
+                String token = UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;);
+                redisTo.setRandomCode(token);
+
+                //设置商品的分布式信号量：保障非常快速的完成商品库存判断
+                RSemaphore semaphore = redissonClient.getSemaphore(SKU_STOCK_SEMAPHORE_PREFIX + token);
+                semaphore.trySetPermits(seckillSkuVo.getSeckillCount());
+
+                String s = JSON.toJSONString(redisTo);
+                ops.put(seckillSkuVo.getPromotionSessionId().toString() + &quot;_&quot; + seckillSkuVo.getSkuId().toString(), s);
+            }
+        });
+    });
+}
+</code></pre>
+<h3 id="秒杀信息展示">秒杀信息展示</h3>
+<h4 id="首页展示">首页展示</h4>
+<p>在秒杀服务中直接查询redis数据库即可达成。</p>
+<pre><code class="language-java">/**
+    * 获取当前可以参与秒杀的商品信息
+    *
+    * @return
+    */
+@Override
+public List&lt;SecKillSkuRedisTo&gt; getCurrentSeckillSkus() {
+    //1.确定当前时间属于哪个秒杀场次
+    //当前时间
+    long time = new Date().getTime();
+    //从redis获取所有秒杀场次信息
+    Set&lt;String&gt; keys = redisTemplate.keys(SESSIONS_CACHE_PREFIX + &quot;*&quot;);
+    for (String key : keys) {
+        String replace = key.replace(SESSIONS_CACHE_PREFIX, &quot;&quot;);
+        String[] s = replace.split(&quot;_&quot;);
+        Long start = Long.parseLong(s[0]);
+        Long end = Long.parseLong(s[1]);
+        if (time &gt;= start &amp;&amp; time &lt;= end) {
+            //当前场次,获取当前场次的信息
+            List&lt;String&gt; range = redisTemplate.opsForList().range(key, 0, -1);
+            BoundHashOperations&lt;String, String, String&gt; hashOps = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+            List&lt;String&gt; list = hashOps.multiGet(range);
+            if (list != null) {
+                List&lt;SecKillSkuRedisTo&gt; collect = list.stream().map(item -&gt; {
+                    SecKillSkuRedisTo redis = JSON.parseObject(item, SecKillSkuRedisTo.class);
+                    return redis;
+                }).collect(Collectors.toList());
+                return collect;
+            }
+            break;
+        }
+    }
+    return null;
+}
+</code></pre>
+<p>在页面加载时就通过ajax发送请求，获取当前秒杀商品的信息。再填充到页面的指定位置。</p>
+<pre><code class="language-js">$.get(&quot;http://seckill.mall.com/currentSeckillSkus&quot;, function (resp) {
+    if (resp.data.length &gt; 0) {
+        resp.data.forEach(function (item) {
+            $(&quot;&lt;li&gt;&lt;/li&gt;&quot;)
+                .append($(&quot;&lt;img style='width: 130px; height: 130px;' src='&quot; + item.skuInfo.skuDefaultImg + &quot;'/&gt;&quot;))
+                .append($(&quot;&lt;p&gt;&quot; + item.skuInfo.skuTitle + &quot;&lt;/p&gt;&quot;))
+                .append($(&quot;&lt;span&gt;&quot; + item.seckillPrice + &quot;&lt;/span&gt;&quot;))
+                .append($(&quot;&lt;s&gt;&quot; + item.skuInfo.price + &quot;&lt;/s&gt;&quot;))
+                .appendTo(&quot;#seckillSkuContent&quot;);
+        })
+    }
+})
+</code></pre>
+<p>效果<br>
+<img src="https://dxone1.github.io//post-images/1638763784588.png" alt="" loading="lazy"></p>
+<h4 id="商品详情页展示">商品详情页展示</h4>
+<p>先查询当前商品的秒杀信息的预告，在商品详情页的查询中添加一个异步任务</p>
+<pre><code class="language-java">CompletableFuture&lt;Void&gt; seckillFuture = CompletableFuture.runAsync(() -&gt; {
+            // 查询sku是否是秒杀商品
+            R r = seckillFeignService.getskuSeckillInfo(skuId);
+            if (r.getCode() == 0) {
+                SeckillInfoVo seckillInfoVo = r.getData(new TypeReference&lt;SeckillInfoVo&gt;() {
+                });
+                skuItemVo.setSeckillInfoVo(seckillInfoVo);
+            }
+        }, executor);
+</code></pre>
+<p>具体查询逻辑：</p>
+<pre><code class="language-java">/**
+    * 获取当前商品的秒杀预告信息
+    * @param skuId
+    * @return
+    */
+@Override
+public SecKillSkuRedisTo getskuSeckillInfo(Long skuId) {
+    //1.找到所有需要参与秒杀的商品的key信息
+    BoundHashOperations&lt;String, String, String&gt; hashOps = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+    Set&lt;String&gt; keys = hashOps.keys();
+    if(keys != null &amp;&amp; keys.size() &gt; 0) {
+        String regx = &quot;\\d_&quot; + skuId;
+        for(String key: keys) {
+            if (Pattern.matches(regx, key)) {
+                String json = hashOps.get(key);
+                SecKillSkuRedisTo skuRedisTo = JSON.parseObject(json, SecKillSkuRedisTo.class);
+                Long startTime = skuRedisTo.getStartTime();
+                Long endTime = skuRedisTo.getEndTime();
+                long current = new Date().getTime();
+                if(current &gt; endTime) {
+                    // 如果是已经结束的秒杀则不显示
+                    continue;
+                } else if(current &lt; startTime) {
+                    // 如果还未开始，则将随机码隐藏
+                    skuRedisTo.setRandomCode(null);
+                }
+                return skuRedisTo;
+            }
+        }
+    }
+    return null;
+}
+</code></pre>
+<p>展示效果完成：<br>
+<img src="https://dxone1.github.io//post-images/1638775716609.png" alt="" loading="lazy"></p>
+<h3 id="秒杀系统">秒杀系统</h3>
+<h4 id="秒杀系统设计">秒杀系统设计</h4>
+<p>系统设计的原则<br>
+<img src="https://dxone1.github.io//post-images/1638776349544.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1638776366926.png" alt="" loading="lazy"><br>
+<strong>之前已经完成的功能：</strong></p>
+<ul>
+<li>使用单一职责独立部署的秒杀服务</li>
+<li>每一个秒杀商品都包含一个随机生成的token，只有在秒杀业务开始之后请求页面才会暴露</li>
+<li>库存预热和快速扣减，使用redis数据库+信号量机制</li>
+<li>使用Nginx服务器进行动静分离</li>
+</ul>
+<h4 id="秒杀登录检查">秒杀登录检查</h4>
+<p>在前端页面点击秒杀后向后台发送请求。请求会带上这次页面刷新获取到的skuId，秒杀场次id和token。前端页面需要判断是否存在<code>session.loginUser</code>，存在则说明已经登录，发送请求，否则跳转到登录页。同时也在后台配置登录拦截器。</p>
+<pre><code class="language-java">@Component
+public class LoginUserInterceptor implements HandlerInterceptor {
+
+    public static ThreadLocal&lt;MemberRespVo&gt; loginUser = new ThreadLocal&lt;&gt;();
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+
+        String uri = request.getRequestURI();
+        AntPathMatcher antPathMatcher = new AntPathMatcher();
+        boolean match = antPathMatcher.match(&quot;/kill&quot;, uri);
+        if (match) {
+            //秒杀服务才需要登录
+            MemberRespVo attribute = (MemberRespVo) request.getSession().getAttribute(AuthServerConstant.LOGIN_USER);
+            if (attribute != null) {
+                loginUser.set(attribute);
+                return true;
+            } else {
+                request.getSession().setAttribute(&quot;msg&quot;, &quot;请先登录&quot;);
+                response.sendRedirect(&quot;http://auth.mall.com/login.html&quot;);
+                return false;
+            }
+        }
+        return true;
+    }
+}
+</code></pre>
+<h4 id="秒杀逻辑">秒杀逻辑</h4>
+<p>考虑到系统大并发的场景，采用单独的一套系统逻辑完成秒杀下单、支付。和订单系统则通过消息队列沟通，能有效将流量影响控制在单个服务中。<br>
+<img src="https://dxone1.github.io//post-images/1638782255151.png" alt="" loading="lazy"><br>
+当秒杀成功，需要将下单的相关信息发送给<code>order-event-exchange</code>，有订单服务监听创建订单</p>
+<pre><code class="language-java">/**
+    * 秒杀业务逻辑
+    *
+    * @param killId
+    * @param key
+    * @param num
+    * @return
+    */
+@Override
+public String kill(String killId, String key, Integer num) {
+    MemberRespVo memberRespVo = LoginUserInterceptor.loginUser.get();
+    //1.获取商品的详细信息
+    BoundHashOperations&lt;String, String, String&gt; hashOps = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+    String json = hashOps.get(killId);
+    if (!StringUtils.isEmpty(json)) {
+        SecKillSkuRedisTo redisTo = JSON.parseObject(json, SecKillSkuRedisTo.class);
+        //2.校验合法性
+        //时间
+        Long startTime = redisTo.getStartTime();
+        Long endTime = redisTo.getEndTime();
+        long time = new Date().getTime();
+        if (time &gt;= startTime &amp;&amp; time &lt;= endTime) {
+            //3.校验token
+            String randomCode = redisTo.getRandomCode();
+            if (randomCode.equals(key)) {
+                //4.数量是否合理
+                Integer seckillLimit = redisTo.getSeckillLimit();
+                if (num &lt;= seckillLimit) {
+                    //5.只允许这个人购买一次,只要秒杀成功就占位
+                    //userId_sessionId_skuId
+                    String redisKey = memberRespVo.getId() + &quot;_&quot; + killId;
+                    // 设定当前场次后过期
+                    long ttl = endTime - time;
+                    // 尝试将当前购物人信息保存占位，如果设置失败则表明已经秒杀过
+                    if (redisTemplate.opsForValue().setIfAbsent(redisKey, num.toString(), ttl, TimeUnit.MILLISECONDS)) {
+                        //6.使用Semaphore信号量减库存
+                        RSemaphore semaphore = redissonClient.getSemaphore(SKU_STOCK_SEMAPHORE_PREFIX + randomCode);
+                        try {
+                            boolean b = semaphore.tryAcquire(num, 100, TimeUnit.MILLISECONDS);
+                            //秒杀成功
+                            //快速下单，直接发送MQ消息
+                            String timeId = IdWorker.getTimeId();
+                            //构建消息
+                            SeckillOrderTo orderTo = new SeckillOrderTo();
+                            orderTo.setOrderSn(timeId);
+                            orderTo.setMemberId(memberRespVo.getId());
+                            orderTo.setNum(num);
+                            orderTo.setPromotionSessionId(redisTo.getPromotionSessionId());
+                            orderTo.setSkuId(redisTo.getSkuId());
+                            orderTo.setSeckillPrice(redisTo.getSeckillPrice());
+                            //发送
+                            rabbitTemplate.convertAndSend(&quot;order-event-exchange&quot;, &quot;order.seckill.order&quot;, orderTo);
+                            return timeId;
+                        } catch (InterruptedException e) {
+                            return null;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+</code></pre>
+<p>创建绑定和队列关系</p>
+<pre><code class="language-java">/**
+    * 秒杀业务创建订单
+    * @return
+    */
+@Bean
+public Queue orderSeckillOrderQueue() {
+    Queue queue = new Queue(&quot;order.seckill.order.queue&quot;, true, false, false);
+    return queue;
+}
+
+/**
+    * 秒杀绑定关系
+    * @return
+    */
+@Bean
+public Binding orderSeckillOrder() {
+    Binding binding = new Binding(&quot;order.seckill.order.queue&quot;,
+            Binding.DestinationType.QUEUE,
+            &quot;order-event-exchange&quot;,
+            &quot;order.seckill.order&quot;, null);
+    return binding;
+}
+</code></pre>
+<p>在秒杀之后再通过监听消息队列即可。最终秒杀一件商品的耗时约为11ms，这是在单线程限制最大堆空间100m下得到的。<br>
+<img src="https://dxone1.github.io//post-images/1638798499548.png" alt="" loading="lazy"></p>
+<h4 id="秒杀页面和支付打通">秒杀页面和支付打通</h4>
+<p>再秒杀之后会生成一个快速订单，快速订单生成之后会提供去支付的接口，这个接口将会携带订单号传递给支付业务。支付业务通过订单号查询订单数据库完成支付。效果：<br>
+抢购页面<br>
+<img src="https://dxone1.github.io//post-images/1638849519740.png" alt="" loading="lazy"><br>
+抢购成功的后处理页面<br>
+<img src="https://dxone1.github.io//post-images/1638849549108.png" alt="" loading="lazy"><br>
+支付的是秒杀价格<br>
+<img src="https://dxone1.github.io//post-images/1638849679713.png" alt="" loading="lazy"></p>
+<p><strong>后续需要补充的点</strong></p>
+<ul>
+<li>上架秒杀商品时要将每个数据添加一个过期时间</li>
+<li>秒杀后续流程（收获地址等）</li>
+</ul>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E5%90%8E%E5%8F%B0%E4%B8%8A%E6%9E%B6">后台上架</a></li>
+<li><a href="#%E7%A7%92%E6%9D%80%E6%9C%8D%E5%8A%A1">秒杀服务</a>
+<ul>
+<li><a href="#%E5%AE%9A%E6%97%B6%E4%B8%8A%E6%9E%B6%E7%A7%92%E6%9D%80%E5%95%86%E5%93%81">定时上架秒杀商品</a>
+<ul>
+<li><a href="#%E5%AE%9A%E6%97%B6%E4%BB%BB%E5%8A%A1">定时任务</a></li>
+<li><a href="#%E5%AE%9A%E6%97%B6%E5%95%86%E5%93%81%E4%B8%8A%E6%9E%B6">定时商品上架</a></li>
+</ul>
+</li>
+<li><a href="#%E7%A7%92%E6%9D%80%E4%BF%A1%E6%81%AF%E5%B1%95%E7%A4%BA">秒杀信息展示</a>
+<ul>
+<li><a href="#%E9%A6%96%E9%A1%B5%E5%B1%95%E7%A4%BA">首页展示</a></li>
+<li><a href="#%E5%95%86%E5%93%81%E8%AF%A6%E6%83%85%E9%A1%B5%E5%B1%95%E7%A4%BA">商品详情页展示</a></li>
+</ul>
+</li>
+<li><a href="#%E7%A7%92%E6%9D%80%E7%B3%BB%E7%BB%9F">秒杀系统</a>
+<ul>
+<li><a href="#%E7%A7%92%E6%9D%80%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1">秒杀系统设计</a></li>
+<li><a href="#%E7%A7%92%E6%9D%80%E7%99%BB%E5%BD%95%E6%A3%80%E6%9F%A5">秒杀登录检查</a></li>
+<li><a href="#%E7%A7%92%E6%9D%80%E9%80%BB%E8%BE%91">秒杀逻辑</a></li>
+<li><a href="#%E7%A7%92%E6%9D%80%E9%A1%B5%E9%9D%A2%E5%92%8C%E6%94%AF%E4%BB%98%E6%89%93%E9%80%9A">秒杀页面和支付打通</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day-18ding-dan-fu-wu/">
+              <h3 class="post-title">
+                商城项目 day 18：订单服务
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
