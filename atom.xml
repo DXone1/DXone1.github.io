@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-12-07T04:14:59.435Z</updated>
+    <updated>2021-12-08T09:41:31.509Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,254 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day20：分布式限流、熔断、降级和链路追踪]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day20fen-bu-shi-xian-liu-rong-duan-jiang-ji-he-lian-lu-zhui-zong/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day20fen-bu-shi-xian-liu-rong-duan-jiang-ji-he-lian-lu-zhui-zong/">
+        </link>
+        <updated>2021-12-07T05:36:34.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="分布式的业务保护">分布式的业务保护</h2>
+<ol>
+<li>熔断机制<br>
+A 服务调用 B 服务的某个功能， 由于网络不稳定问题， 或者 B 服务卡机， 导致功能时间超长。 如果这样子的次数太多。 我们就可以直接将 B 断路了（A 不再请求 B 接口） ， 凡是调用 B 的直接返回降级数据， 不必等待 B 的超长执行。 这样 B 的故障问题， 就不会级联影响到 A</li>
+<li>降级机制<br>
+整个网站处于流量高峰期， 服务器压力剧增， 根据当前业务情况及流量， 对一些服务和页面进行有策略的降级（停止服务， 所有的调用直接返回降级数据）。 以此缓解服务器资源的的压力， 以保证核心业务的正常运行， 同时也保持了客户和大部分客户的得到正确的相应。<br>
+<strong>区别</strong>
+<ul>
+<li>熔断是被调用方故障， 触发的系统主动规则</li>
+<li>降级是基于全局考虑， 停止一些正常服务， 释放资源</li>
+</ul>
+</li>
+<li>限流<br>
+对打入服务的请求流量进行控制， 使服务能够承担不超过自己能力的流量压力<br>
+<img src="https://dxone1.github.io//post-images/1638855831353.png" alt="" loading="lazy"></li>
+</ol>
+<h2 id="sentinel使用">Sentinel使用</h2>
+<h3 id="流量控制">流量控制</h3>
+<ul>
+<li>引入依赖</li>
+<li>下载对应版本的dashBoard监控并启动</li>
+<li>配置控制台信息</li>
+</ul>
+<pre><code class="language-java">spring.cloud.sentinel.transport.dashboard=localhost:8333
+spring.cloud.sentinel.transport.port=8719
+</code></pre>
+<ul>
+<li>导入acutator模块</li>
+</ul>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ul>
+<li>暴露actuator信息给sentinel</li>
+</ul>
+<pre><code class="language-java">management.endpoints.web.exposure.include=*
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1638867690606.png" alt="" loading="lazy"></figure>
+<ul>
+<li>自定义限流返回：在blockHandler中重写方法</li>
+</ul>
+<pre><code class="language-java">@Configuration
+public class MallSentinelConfig {
+    public MallSentinelConfig() {
+        WebCallbackManager.setUrlBlockHandler(new UrlBlockHandler() {
+            @Override
+            public void blocked(HttpServletRequest request, HttpServletResponse response, BlockException ex) throws IOException {
+                R error = R.error(BizCodeEnum.TOO_MANY_REQUEST.getCode(), BizCodeEnum.TOO_MANY_REQUEST.getMsg());
+                response.setCharacterEncoding(&quot;utf-8&quot;);
+                response.setContentType(&quot;application/json&quot;);
+                response.getWriter().write(JSON.toJSONString(error));
+            }
+        });
+    }
+}
+</code></pre>
+<p>在每个应用中引入sentinel，然后配置流量控制规则</p>
+<h3 id="熔断降级">熔断降级</h3>
+<p>对服务之间远程调用进行熔断保护，sentinel提供了对Feign远程调用的支持。<br>
+<img src="https://dxone1.github.io//post-images/1638871388946.png" alt="" loading="lazy"></p>
+<ol>
+<li>调用方开启Feign支持</li>
+</ol>
+<pre><code class="language-java">feign.sentinel.enabled=true
+</code></pre>
+<ol start="2">
+<li>给远程服务配置失败的fallback<br>
+模仿官网的写法，创建一个实现了Feign远程接口的类，如果出现调用失败fallback则会寻找fallback指示的类的同名方法返回。首先保护秒杀业务崩溃显示商品详情，加入熔断</li>
+</ol>
+<pre><code class="language-java">@FeignClient(value = &quot;mall-seckill&quot;, fallback = SeckillFeignServiceFallBack.class)
+public interface SeckillFeignService {
+    @GetMapping(&quot;/sku/seckill/{skuId}&quot;)
+    R getskuSeckillInfo(@PathVariable(&quot;skuId&quot;) Long skuId);
+}
+/******************************************************/
+
+@Component
+public class SeckillFeignServiceFallBack implements SeckillFeignService {
+    @Override
+    public R getskuSeckillInfo(Long skuId) {
+        return R.error(BizCodeEnum.TOO_MANY_REQUEST.getCode(), BizCodeEnum.TOO_MANY_REQUEST.getMsg());
+    }
+}
+</code></pre>
+<p>手动停机后，仍然可以正常渲染页面<br>
+<img src="https://dxone1.github.io//post-images/1638872179847.png" alt="" loading="lazy"></p>
+<ol start="3">
+<li>
+<p>在dashBorad也可以手动设置降级策略<br>
+例如设置远程调用的响应时间：<br>
+<img src="https://dxone1.github.io//post-images/1638872716693.png" alt="" loading="lazy"><br>
+则在1秒内如果有超过5次请求的响应时间小于1ms时接下来的10s内的调用只会触发fallback。在服务提供方进行限流或降级，则可以直接返回而不进行业务数据。动过手动配置牺牲一部分次要服务而保护全体服务链路。</p>
+</li>
+<li>
+<p>指定特定资源<br>
+可以通过以下语法指定一个被保护的资源</p>
+</li>
+</ol>
+<pre><code class="language-java">try(Entry entry = SphU.entry(&quot;seckillSkus&quot;)) {
+    //从redis获取所有秒杀场次信息
+    Set&lt;String&gt; keys = redisTemplate.keys(SESSIONS_CACHE_PREFIX + &quot;*&quot;);
+    for (String key : keys) {
+        String replace = key.replace(SESSIONS_CACHE_PREFIX, &quot;&quot;);
+        String[] s = replace.split(&quot;_&quot;);
+        Long start = Long.parseLong(s[0]);
+        Long end = Long.parseLong(s[1]);
+        if (time &gt;= start &amp;&amp; time &lt;= end) {
+            //当前场次,获取当前场次的信息
+            List&lt;String&gt; range = redisTemplate.opsForList().range(key, 0, -1);
+            BoundHashOperations&lt;String, String, String&gt; hashOps = redisTemplate.boundHashOps(SKUKILL_CACHE_PREFIX);
+            List&lt;String&gt; list = hashOps.multiGet(range);
+            if (list != null) {
+                List&lt;SecKillSkuRedisTo&gt; collect = list.stream().map(item -&gt; {
+                    SecKillSkuRedisTo redis = JSON.parseObject(item, SecKillSkuRedisTo.class);
+                    return redis;
+                }).collect(Collectors.toList());
+                return collect;
+            }
+            break;
+        }
+    }
+} catch (BlockException e) {
+    log.error(&quot;资源被限流:{}&quot;,e.getMessage());
+}
+</code></pre>
+<p>也可以使用注解<code>@SentinelResource</code>直接标在方法上，即可对其进行流量控制。注解中用<code>value</code>指定资源名，<code>blockHandler</code>指定降级方法</p>
+<pre><code class="language-java">public List&lt;SecKillSkuRedisTo&gt; blockHandler(BlockException e) {
+    log.error(&quot;降级调用&quot;);
+    return null;
+}
+
+/**
+    * 获取当前可以参与秒杀的商品信息
+    *
+    * @return
+    */
+@SentinelResource(value = &quot;getCurrentSeckillSkusResource&quot;, blockHandler = &quot;blockHandler&quot;)
+@Override
+public List&lt;SecKillSkuRedisTo&gt; getCurrentSeckillSkus() {
+    ......
+}
+</code></pre>
+<p>有两个可以指定的调用</p>
+<ul>
+<li>blockHandler：只针对降级、限流、熔断等的异常</li>
+<li>fallback：针对所有的异常<br>
+官网示例：具体：https://github.com/alibaba/Sentinel/wiki/%E6%B3%A8%E8%A7%A3%E6%94%AF%E6%8C%81</li>
+</ul>
+<pre><code class="language-java">public class TestService {
+
+    // 原函数
+    @SentinelResource(value = &quot;hello&quot;, blockHandler = &quot;exceptionHandler&quot;, fallback = &quot;helloFallback&quot;)
+    public String hello(long s) {
+        return String.format(&quot;Hello at %d&quot;, s);
+    }
+    
+    // Fallback 函数，函数签名与原函数一致或加一个 Throwable 类型的参数.
+    public String helloFallback(long s) {
+        return String.format(&quot;Halooooo %d&quot;, s);
+    }
+
+    // Block 异常处理函数，参数最后多一个 BlockException，其余与原函数一致.
+    public String exceptionHandler(long s, BlockException ex) {
+        // Do some log here.
+        ex.printStackTrace();
+        return &quot;Oops, error occurred at &quot; + s;
+    }
+
+    // 这里单独演示 blockHandlerClass 的配置.
+    // 对应的 `handleException` 函数需要位于 `ExceptionUtil` 类中，并且必须为 public static 函数.
+    @SentinelResource(value = &quot;test&quot;, blockHandler = &quot;handleException&quot;, blockHandlerClass = {ExceptionUtil.class})
+    public void test() {
+        System.out.println(&quot;Test&quot;);
+    }
+}
+</code></pre>
+<p><strong>总结：</strong></p>
+<ul>
+<li>使用WebCallbackManager设置统一的url返回</li>
+<li>对于远程调用则需要具体设置fallback或是blockHandler</li>
+</ul>
+<h3 id="网关流控">网关流控</h3>
+<ol>
+<li>在网管层引入网关sentinel控件</li>
+</ol>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.alibaba.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-alibaba-sentinel-gateway&lt;/artifactId&gt;
+    &lt;version&gt;2.1.0.RELEASE&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<ol start="2">
+<li>添加网关回调</li>
+</ol>
+<pre><code class="language-java">@Configuration
+public class SentinelGatewayConfig {
+
+    public SentinelGatewayConfig() {
+        GatewayCallbackManager.setBlockHandler(new BlockRequestHandler() {
+            @Override
+            public Mono&lt;ServerResponse&gt; handleRequest(ServerWebExchange exchange, Throwable t) {
+                R error = R.error(BizCodeEnum.TOO_MANY_REQUEST.getCode(), BizCodeEnum.TOO_MANY_REQUEST.getMsg());
+                String errJson = JSON.toJSONString(error);
+                Mono&lt;ServerResponse&gt; body = ServerResponse.ok().body(Mono.just(errJson), String.class);
+                return body;
+            }
+        });
+    }
+}
+</code></pre>
+<h2 id="链路追踪">链路追踪</h2>
+<p>使用Sleuth + Zipkin。首先在docker安装zipkin服务器</p>
+<pre><code class="language-java">docker run -d -p 9411:9411 openzipkin/zipkin
+</code></pre>
+<p>引入两个依赖(包含了sleuth)</p>
+<pre><code class="language-xml">&lt;!--链路追踪--&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-starter-zipkin&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>配置：</p>
+<pre><code class="language-yaml">spring:
+  zipkin:
+    base-url: http://192.168.180.3:9411/
+    discovery-client-enabled: false
+    sender:
+      type: web
+  sleuth:
+    sampler:
+      probability: 1
+</code></pre>
+<p>持久化：存储在ES数据库中</p>
+<pre><code class="language-java">docker run --env STORAGE_TYPE=elasticsearch --env ES_HOSTS=192.168.180.3:9200 openzipkin/zipkin-dependencies
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1638953418179.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1638953453312.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1638953535612.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day19：瞬时高并发-秒杀业务]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day19shun-shi-gao-bing-fa-miao-sha-ye-wu/</id>
@@ -3916,348 +4164,6 @@ private List&lt;CategoryEntity&gt; getParent_cid(List&lt;CategoryEntity&gt; sele
 </code></pre>
 <p><img src="https://dxone1.github.io//post-images/1637052446002.png" alt="" loading="lazy"><br>
 吞吐量大幅上涨</p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城项目 day10：商品商城]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day10shang-pin-shang-cheng/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day10shang-pin-shang-cheng/">
-        </link>
-        <updated>2021-11-15T02:51:51.000Z</updated>
-        <content type="html"><![CDATA[<p>ES作用：商城全文检索、日志检索...</p>
-<h2 id="商品上架">商品上架</h2>
-<p>ES使用内存，代价很高，所以约定只存储必须的信息，其他的再从mysql中查找。保存以下信息：sku信息、SPU商品规格、品牌、分类...<br>
-<img src="https://dxone1.github.io//post-images/1636945703755.png" alt="" loading="lazy"><br>
-防冗余ES设计：</p>
-<pre><code class="language-json">sku索引{
-    skuId: 1,
-    spuId: 11,
-    xxxx
-}
-
-attr索引{
-    spuId: 11,
-    attrs: [
-        {尺寸: 5寸},
-        {CPU: 高通骁龙845},
-        {分辨率: 全高清}        
-    ]
-}
-</code></pre>
-<p>观察京东商城的设计：当搜索某个选项后可以自动计算出符合该搜索项的所有属性组合。综合考量使用如下的ES索引设计</p>
-<pre><code class="language-json">POST product
-{
-  &quot;mappings&quot;: {
-    &quot;properties&quot;: {
-      &quot;skuId&quot;: {
-        &quot;type&quot;: &quot;long&quot;
-      },
-      &quot;spuId&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;
-      },
-      &quot;skuTitle&quot;: {
-        &quot;type&quot;: &quot;text&quot;,
-        &quot;analyzer&quot;: &quot;ik_smart&quot;
-      },
-      &quot;skuPrice&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;
-      },
-      &quot;skuImg&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;,
-        &quot;index&quot;: false,
-        &quot;doc_values&quot;: false
-      },
-      &quot;saleCount&quot;: {
-        &quot;type&quot;: &quot;long&quot;
-      },
-      &quot;hasStock&quot;: {
-        &quot;type&quot;: &quot;boolean&quot;
-      },
-      &quot;hotScore&quot;: {
-        &quot;type&quot;: &quot;long&quot;
-      },
-      &quot;brandId&quot;: {
-        &quot;type&quot;: &quot;long&quot;
-      },
-      &quot;catalogId&quot;: {
-        &quot;type&quot;: &quot;long&quot;
-      },
-      &quot;brandName&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;,
-        &quot;index&quot;: false,
-        &quot;doc_values&quot;: false
-      },
-      &quot;brandImg&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;,
-        &quot;index&quot;: false,
-        &quot;doc_values&quot;: false
-      },
-      &quot;catalogName&quot;: {
-        &quot;type&quot;: &quot;keyword&quot;,
-        &quot;index&quot;: false,
-        &quot;doc_values&quot;: false
-      },
-      &quot;attrs&quot;: {
-        &quot;type&quot;: &quot;nested&quot;,
-        &quot;properties&quot;: {
-          &quot;attrId&quot;: {
-            &quot;type&quot;: &quot;long&quot;
-          },
-          &quot;attrName&quot;: {
-            &quot;type&quot;: &quot;keyword&quot;,
-            &quot;index&quot;: false,
-            &quot;doc_values&quot;: false
-          },
-          &quot;attrValue&quot;: {
-            &quot;type&quot;: &quot;keyword&quot;
-          }
-        }
-      }
-    }
-  }
-}
-</code></pre>
-<ol>
-<li>创建一个和这个数据格式匹配的TO（领域模型）,完成product和search服务之间的数据传输</li>
-<li>基本属性和品牌分类信息的sql查找和封装</li>
-<li>远程调用库存服务，查看还有没有库存</li>
-</ol>
-<pre><code class="language-java">@Override
-public List&lt;SkuHasStockVo&gt; getSkuHasStock(List&lt;Long&gt; skuIds) {
-    List&lt;SkuHasStockVo&gt; collect = skuIds.stream().map(skuId -&gt; {
-        SkuHasStockVo skuHasStockVo = new SkuHasStockVo();
-        Long count = this.baseMapper.getSkuStock(skuId);
-        skuHasStockVo.setHasStock(count &gt; 0);
-        return skuHasStockVo;
-    }).collect(Collectors.toList());
-    return collect;
-}
-</code></pre>
-<ol start="4">
-<li>远程调用search服务，实现index给ES封装好的SkuEsModel</li>
-</ol>
-<pre><code class="language-java">/**
-    * 保存上架商品数据到ES中
-    * @param skuEsModels
-    */
-@Override
-public boolean productStatusUp(List&lt;SkuEsModel&gt; skuEsModels) throws IOException {
-    // 1. 给ES建立索引，并建立映射关系
-    // 2. 给es保存数据
-    BulkRequest bulkRequest = new BulkRequest();
-    for (SkuEsModel model : skuEsModels) {
-        IndexRequest indexRequest = new IndexRequest(EsConstant.PRODUCT_INDEX);
-        // 设定indexRequest的id,内容
-        indexRequest.id(model.getSkuId().toString());
-        String s = JSON.toJSONString(model);
-        indexRequest.source(s, XContentType.JSON);
-        // 放入bulk中
-        bulkRequest.add(indexRequest);
-    }
-    BulkResponse bulk = client.bulk(bulkRequest, MallElasticSearchConfig.COMMON_OPTIONS);
-    // TODO 如果批量index操作有错误则记录log
-    boolean b = bulk.hasFailures();
-    List&lt;String&gt; collect = Arrays.stream(bulk.getItems()).filter(item -&gt;
-            item.isFailed()
-    ).map(item -&gt; {
-        return item.getId();
-    }).collect(Collectors.toList());
-    log.error(&quot;商品上架出错,{}&quot;, collect);
-
-    return b;
-}
-</code></pre>
-<pre><code class="language-java">/**
-* feign调用流程：
-* 1. 构造请求数据，将对象转为json
-* 2. 发送请求进行执行，执行成功会解码响应数据
-* 3. 执行请求会有重试机制
-*/
-</code></pre>
-<p>总体的javaService如下，流程还是有复杂度的</p>
-<pre><code class="language-java">/**
-    * 商品上架功能
-    * @param spuId
-    */
-@Override
-public void up(Long spuId) {
-    //1. 组装需要的数据
-    // 查询当前SpuId对应的SKU信息
-    List&lt;SkuInfoEntity&gt; skus = skuInfoService.getSkusBySpuId(spuId);
-    List&lt;Long&gt; skuIdList = skus.stream().map(SkuInfoEntity::getSkuId).collect(Collectors.toList());
-
-    // TODO 查询当前Sku的所有可以被检索的规格属性 attrs
-    List&lt;ProductAttrValueEntity&gt; baseAttrs = productAttrValueService.baseAttrListForSpu(spuId);
-    List&lt;Long&gt; attrIds = baseAttrs.stream().map(attr -&gt; {
-        return attr.getAttrId();
-    }).collect(Collectors.toList());
-    // 查询可检索属性的id
-    List&lt;Long&gt; searchAttrIds = attrService.selectSearchAttrs(attrIds);
-    Set&lt;Long&gt; idSet = new HashSet&lt;&gt;(searchAttrIds);
-    // 筛选可检索的属性并封装
-    // 先过滤掉不可检索的属性，再封装成SkuEsModel.Attrs的格式，方便后续保存
-    List&lt;SkuEsModel.Attrs&gt; attrsList = baseAttrs.stream().filter(item -&gt; {
-        return idSet.contains(item.getAttrId());
-    }).map(item -&gt; {
-        SkuEsModel.Attrs attrs1 = new SkuEsModel.Attrs();
-        BeanUtils.copyProperties(item, attrs1);
-        return attrs1;
-    }).collect(Collectors.toList());
-
-    // hasStock 发送远程查看有无库存
-    Map&lt;Long, Boolean&gt; stockMap = null;
-    try {
-        R skuHasStock = wareFeignService.getSkuHasStock(skuIdList);
-        TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt; typeReference = new TypeReference&lt;List&lt;SkuHasStockVo&gt;&gt;() {};
-        stockMap = skuHasStock.getData(typeReference).stream().collect(Collectors.toMap(SkuHasStockVo::getSkuId, item -&gt; item.getHasStock()));
-    } catch (Exception e) {
-        log.error(&quot;库存服务异常,原因{}&quot;,e);
-    }
-
-    // 封装SkuEsModel
-    Map&lt;Long, Boolean&gt; finalStockMap = stockMap;
-    List&lt;SkuEsModel&gt; upProducts = skus.stream().map(sku -&gt; {
-        SkuEsModel esModel = new SkuEsModel();
-        BeanUtils.copyProperties(sku, esModel);
-        esModel.setSkuPrice(sku.getPrice());
-        esModel.setSkuImg(sku.getSkuDefaultImg());
-
-        // 设置库存，没有查询成功就认为有库存返回
-        if(finalStockMap == null) {
-            esModel.setHasStock(true);
-        } else {
-            esModel.setHasStock(finalStockMap.get(sku.getSkuId()));
-        }
-
-        // hotStock 热度评分默认置0
-        esModel.setHotScore(0L);
-
-        // 品牌信息
-        BrandEntity brandEntity = brandService.getById(esModel.getBrandId());
-        esModel.setBrandName(brandEntity.getName());
-        esModel.setBrandImg(brandEntity.getLogo());
-        // 分类信息
-        CategoryEntity categoryEntity = categoryService.getById(esModel.getCatalogId());
-        esModel.setCatalogName(categoryEntity.getName());
-        // 设置SPU的可检索规格属性
-        esModel.setAttrs(attrsList);
-        return esModel;
-    }).collect(Collectors.toList());
-
-    // 发送给ES：提出search的远程调用
-    R r = searchFeignService.productStatusUp(upProducts);
-    if(r.getCode() == 0) {
-        // 远程调用成功
-        // 需要修改SPU的 publish_status 发布状态为已上架
-        this.baseMapper.updateSpuStatus(spuId, ProductConstant.StatusEnum.SPU_UP.getCode());
-
-    } else {
-        // 远程调用失败
-        // TODO 重复调用，接口幂等性问题，重试机制
-
-    }
-}
-</code></pre>
-<p>结果：<br>
-<img src="https://dxone1.github.io//post-images/1636969745665.png" alt="" loading="lazy"></p>
-<h2 id="搭建商城首页">搭建商城首页</h2>
-<h3 id="使用thymeleaf渲染页面">使用thymeleaf渲染页面</h3>
-<p>架构如下：<br>
-<img src="https://dxone1.github.io//post-images/1636970274115.png" alt="" loading="lazy"></p>
-<ol>
-<li>导入thymeleaf的依赖</li>
-</ol>
-<pre><code class="language-xml">&lt;dependency&gt;
-    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
-    &lt;artifactId&gt;spring-boot-starter-thymeleaf&lt;/artifactId&gt;
-&lt;/dependency&gt;
-</code></pre>
-<p>将页面资源放入对应的微服务的项目文件夹：</p>
-<pre><code class="language-txt">静态资源 -&gt; static
-动态页面 -&gt; templates
-</code></pre>
-<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1636975188211.png" alt="" loading="lazy"></figure>
-<h3 id="首页渲染分类功能">首页渲染分类功能</h3>
-<ol>
-<li>先设定欢迎页的路径映射，使用Thymeleaf解析</li>
-<li>编写返回渲染分类信息的数据</li>
-</ol>
-<pre><code class="language-java">@GetMapping({&quot;/&quot;, &quot;/index.html&quot;})
-public String indexPage(Model model) {
-    // TODO 查出所有的一级分类
-    List&lt;CategoryEntity&gt; categoryEntities = categoryService.getLevel1Categorys();
-    // 使用model传数据
-    model.addAttribute(&quot;categorys&quot;, categoryEntities);
-    return &quot;index&quot;;
-}
-</code></pre>
-<ol start="3">
-<li>页面取出相关数据并渲染<br>
-一级菜单</li>
-</ol>
-<pre><code class="language-html">&lt;ul&gt;
-    &lt;li th:each=&quot;category : ${categorys}&quot;&gt;
-        &lt;a href=&quot;#&quot; class=&quot;header_main_left_a&quot; th:attr=&quot;ctg-data=${category.catId}&quot;&gt;&lt;b th:text=&quot;${category.name}&quot;&gt;家用电器111&lt;/b&gt;&lt;/a&gt;
-    &lt;/li&gt;
-&lt;/ul&gt;
-</code></pre>
-<p>二三级菜单<br>
-根据需要返回的数据，构建一个vo</p>
-<pre><code class="language-java">@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class Catelog2Vo {
-    private String catalog1Id; //一级父分类的id
-    private List&lt;Object&gt; catalog3List; // 三级子分类
-    private String id;
-    private String name;
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Catelog3Vo {
-        private String catalog2Id; //二级父分类的id
-        private String id;
-        private String name;
-    }
-}
-</code></pre>
-<p>给出的js文件会发出请求，编写对应的控制器返回json数据</p>
-<pre><code class="language-java">/**
-    * 返回封装成json格式的二三级分类
-    * @return
-    */
-@Override
-public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
-    // 查出所有一级分类
-    List&lt;CategoryEntity&gt; level1Categorys = this.getLevel1Categorys();
-    // 封装数据
-    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; map = level1Categorys.stream().collect(Collectors.toMap(k -&gt; k.getCatId().toString(),
-            v -&gt; {
-                // 查询所有一级分类下的二级分类
-                List&lt;CategoryEntity&gt; categoryEntities = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, v.getCatId()));
-                List&lt;Catelog2Vo&gt; catelog2Vos = null;
-                if (categoryEntities != null) {
-                    catelog2Vos = categoryEntities.stream().map(l2 -&gt; {
-                        Catelog2Vo catelog2Vo = new Catelog2Vo(v.getCatId().toString(), null, l2.getCatId().toString(), l2.getName());
-                        List&lt;CategoryEntity&gt; level3Catelog = baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, l2.getCatId()));
-                        if(level3Catelog != null) {
-                            List&lt;Catelog2Vo.Catelog3Vo&gt; collect = level3Catelog.stream().map(l3 -&gt; {
-                                Catelog2Vo.Catelog3Vo catelog3Vo = new Catelog2Vo.Catelog3Vo(l2.getCatId().toString(), l3.getCatId().toString(), l3.getName());
-                                return catelog3Vo;
-                            }).collect(Collectors.toList());
-                            catelog2Vo.setCatalog3List(collect);
-                        }
-                        return catelog2Vo;
-                    }).collect(Collectors.toList());
-                }
-                return catelog2Vos;
-            }));
-    return map;
-}
-</code></pre>
-<p>此时分类的渲染是实时从数据库更新的<br>
-<img src="https://dxone1.github.io//post-images/1636978683545.png" alt="" loading="lazy"></p>
 ]]></content>
     </entry>
 </feed>
