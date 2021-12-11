@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-12-08T09:41:31.509Z</updated>
+    <updated>2021-12-11T08:56:36.655Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,224 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day21：Kubernetes ]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day21kubernetes/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day21kubernetes/">
+        </link>
+        <updated>2021-12-08T09:47:27.000Z</updated>
+        <content type="html"><![CDATA[<p>接下来在本地环境搭建云上系统。<br>
+在早期应用部署时代，一个机器上会部署多个应用。应用之间无法很好的隔离和配置，如果一个应用出现内存泄漏等问题，所有的应用都会被卡死。同时，环境的迁移也很困难。<br>
+虚拟化技术出现使得应用之间被隔离，但是因为存在完整的环境，资源被大量的浪费了。于是出现了以docker为代表的容器化技术。<br>
+<img src="https://dxone1.github.io//post-images/1638958206542.png" alt="" loading="lazy"><br>
+对于所有的容器进行编排，这就是Kubernetes的作用。k8s采用主从方式，一个主节点会管理多个node<br>
+<img src="https://dxone1.github.io//post-images/1638958916208.png" alt="" loading="lazy"></p>
+<ul>
+<li>kube-apiserver
+<ul>
+<li>对外暴露 K8S 的 api 接口， 是外界进行资源操作的唯一入口</li>
+<li>提供认证、 授权、 访问控制、 API 注册和发现等机制</li>
+</ul>
+</li>
+<li>etcd
+<ul>
+<li>etcd 是兼具一致性和高可用性的键值数据库， 可以作为保存Kubernetes 所有集群数据的后台数据库。</li>
+<li>Kubernetes 集群的 etcd 数据库通常需要有个备份计划</li>
+</ul>
+</li>
+<li>kube-scheduler
+<ul>
+<li>主节点上的组件， 该组件监视那些新创建的未指定运行节点的 Pod， 并选择节点让 Pod 在上面运行。</li>
+<li>所有对 k8s 的集群操作， 都必须经过主节点进行调度</li>
+</ul>
+</li>
+<li>kube-controller-manager
+<ul>
+<li>在主节点上运行控制器的组件</li>
+<li>这些控制器包括:
+<ul>
+<li>节点控制器（Node Controller） : 负责在节点出现故障时进行通知和响应。</li>
+<li>副本控制器（Replication Controller） : 负责为系统中的每个副本控制器对象维护正确数量的 Pod。</li>
+<li>端点控制器（Endpoints Controller） : 填充端点(Endpoints)对象(即加入 Service与 Pod)。</li>
+<li>服务帐户和令牌控制器（Service Account &amp; Token Controllers） : 为新的命名空间创建默认帐户和 API 访问令牌</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>node节点的组织则如下图</strong><br>
+<img src="https://dxone1.github.io//post-images/1638965421276.png" alt="" loading="lazy"></p>
+<ul>
+<li>kubelet
+<ul>
+<li>一个在集群中每个节点上运行的代理。 它保证容器都运行在 Pod 中。</li>
+<li>负责维护容器的生命周期， 同时也负责 Volume（CSI） 和网络（CNI） 的管理；</li>
+</ul>
+</li>
+<li>kube-proxy
+<ul>
+<li>负责为 Service 提供 cluster 内部的服务发现和负载均衡；</li>
+</ul>
+</li>
+<li>容器运行环境(Container Runtime)
+<ul>
+<li>容器运行环境是负责运行容器的软件。</li>
+<li>Kubernetes 支持多个容器运行环境: Docker、 containerd、 cri-o、 rktlet 以及任何实现 Kubernetes CRI (容器运行环境接口)。</li>
+</ul>
+</li>
+<li>fluentd
+<ul>
+<li>是一个守护进程， 它有助于提供集群层面日志 集群层面的日志</li>
+</ul>
+</li>
+</ul>
+<p>总图：<br>
+<img src="https://dxone1.github.io//post-images/1638965609464.png" alt="" loading="lazy"></p>
+<h2 id="部署">部署</h2>
+<p>部署两个node，一个master。在三个节点上使用kubeadm和Dashboard Web页面。<br>
+使用virtual box配置为NAT网络模式，每个节点采用双网卡，一个网卡是独立的，另一个网卡则是Host Only方便与宿主机通信。<br>
+需要安装如下组件：</p>
+<ul>
+<li>Docker</li>
+<li>kubeadm</li>
+<li>kubelet</li>
+<li>kubectl</li>
+</ul>
+<p>安装部署好kubeadm成功示例：<br>
+<img src="https://dxone1.github.io//post-images/1639118530330.png" alt="" loading="lazy"><br>
+在master节点配置好master的各项设置后，将各个node添加到这个网络中。在master节点运行<code>kubeadm join ******</code>，是mater节点部署完成提示的那行命令，即可将其加入网络。</p>
+<h3 id="测试">测试</h3>
+<p>使用命令<code>kubectl create deployment tomcat6 --image=tomcat:6.0.53-jre8 --dry-run -o yaml &gt; tomcat6.yaml</code>可以在不运行状态下生成一个模板yaml。在修改相应参数后使用<code>kubectl apply -f tomcat6.yaml</code>即可执行</p>
+<h3 id="术语">术语</h3>
+<ul>
+<li><strong>控制器</strong>可以为您创建和管理多个 Pod， 管理副本和上线， 并在集群范围内提供自修复能力。</li>
+<li><strong>部署和Service</strong>通过Service向外开放一个跨pod的服务。Deployment部署，指将部署策略拉到master节点，然后具体部署。</li>
+</ul>
+<h3 id="一次部署">一次部署</h3>
+<ol>
+<li>使用yaml进行部署，首先写一个部署用的yaml文件</li>
+</ol>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tomcat6
+  name: tomcat6
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tomcat6
+  template:
+    metadata:
+      labels:
+        app: tomcat6
+    spec:
+      containers:
+      - image: tomcat:6.0.53-jre8
+        name: tomcat
+</code></pre>
+<ol start="2">
+<li>使用yaml配置部署<code>kubectl apply -f tomcat6-deployment.yaml</code></li>
+<li>暴露Service端口，将yaml添加暴露信息</li>
+</ol>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tomcat6
+  name: tomcat6
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tomcat6
+  template:
+    metadata:
+      labels:
+        app: tomcat6
+    spec:
+      containers:
+      - image: tomcat:6.0.53-jre8
+        name: tomcat
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: tomcat6
+  name: tomcat6
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: tomcat6
+  type: NodePort
+</code></pre>
+<ol start="4">
+<li>直接使用全新的yaml部署文件部署，这次直接出现暴露的信息<br>
+<img src="https://dxone1.github.io//post-images/1639126994527.png" alt="" loading="lazy"></li>
+<li>使用Ingress<br>
+通过 Service 发现 Pod 进行关联。 基于域名访问。通过 Ingress Controller 实现 Pod 负载均衡，支持 TCP/UDP 4 层负载均衡和 HTTP 7 层负载均衡<br>
+<img src="https://dxone1.github.io//post-images/1639127243686.png" alt="" loading="lazy"><br>
+使用imgress-controller.yaml文件进行部署。之后配置ingress规则，这样就可以使用域名访问service</li>
+</ol>
+<pre><code class="language-yaml">apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+    name: web
+spec:
+    rules:
+    - host: tomcat6.atguigu.com
+        http:
+        paths:
+        - backend:
+            serviceName: tomcat6
+            servicePort: 80
+</code></pre>
+<p>实现效果：在hosts配置上域名访问192.168.163.102这个IP，当在浏览器访问时因默认80端口而访问ingress，ingress通过host信息路由和负载均衡到某个pod上。注意ingress内置有Nginx，实现逻辑相似。</p>
+<h2 id="kubesphere">Kubesphere</h2>
+<p>是一种更加强大的自动化流水部署控制台工具，按照官方文档步骤直接进行安装。使用OpendEbs做存储。最终可以通过访问网页获取整个kubernetes集群的管理<br>
+<img src="https://dxone1.github.io//post-images/1639136931709.png" alt="" loading="lazy"></p>
+<ol>
+<li>最小化安装</li>
+<li>安装DevOps等可插拔应用</li>
+</ol>
+<h3 id="建立多租户管理">建立多租户管理</h3>
+<p>KubeSphere 多租户体系中，将资源划分为以下三个层级：</p>
+<ul>
+<li>集群</li>
+<li>企业空间</li>
+<li>项目和 DevOps 工程</li>
+</ul>
+<p>针对不同层级的资源都可以灵活地定制角色用以划分用户的权限范围，实现不同用户之间的资源隔离。<br>
+<img src="https://dxone1.github.io//post-images/1639141587281.png" alt="" loading="lazy"><br>
+有三种角色，对应了不同的权限。一个账号可以拥有某一种角色<br>
+<img src="https://dxone1.github.io//post-images/1639141824510.png" alt="" loading="lazy"><br>
+创建一个角色user-manager拥有用户和角色权限，再创建一个账户拥有这个角色，那么如果用该账户登录则权限被精细控制。<br>
+<img src="https://dxone1.github.io//post-images/1639142172049.png" alt="" loading="lazy"></p>
+<h3 id="部署一个wordpress应用">部署一个WordPress应用</h3>
+<ol>
+<li>创建密钥<br>
+如Mysql密码等数据不应当以明文形式展示，而应该生成一个密钥来管理。<br>
+<img src="https://dxone1.github.io//post-images/1639195535600.png" alt="" loading="lazy"></li>
+<li>存储卷和应用创建<br>
+在其中添加一个组件Mysql，按照官网的步骤添加Mysql镜像，选择使用默认端口。再在环境变量中设置一个MYSQL_ROOT_PASSWARD，使用之前创建的密钥即可。存储卷的目录挂载如下<br>
+<img src="https://dxone1.github.io//post-images/1639198364783.png" alt="" loading="lazy"><br>
+设置wordpress的相关设定，为其添加一个host地址：mysql，使用服务名来在组件之间通信<br>
+<img src="https://dxone1.github.io//post-images/1639198765761.png" alt="" loading="lazy"></li>
+<li>暴露wordpress组件的外网访问<br>
+直接在组件处选择暴露外网访问即可。<br>
+<img src="https://dxone1.github.io//post-images/1639199331348.png" alt="" loading="lazy"></li>
+</ol>
+<h3 id="部署一个springboot项目">部署一个Springboot项目</h3>
+<p><img src="https://dxone1.github.io//post-images/1639206874002.png" alt="" loading="lazy"><br>
+github访问太慢，可以使用gitee的账户，添加一个giteede账户凭证，然后以git形式连接这个仓库。使用指定的Jenkinsfile即可完成一次自动化部署。<br>
+<img src="https://dxone1.github.io//post-images/1639212749395.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day20：分布式限流、熔断、降级和链路追踪]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day20fen-bu-shi-xian-liu-rong-duan-jiang-ji-he-lian-lu-zhui-zong/</id>
@@ -4052,118 +4270,6 @@ SpringCache的会创建RedisCacheManager -&gt; RedisCache，默认是不加锁�
 @Cacheable是读方法<br>
 @CacheEvict是更新方法</li>
 </ol>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城项目 day11：反向代理和压力测试]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day11/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day11/">
-        </link>
-        <updated>2021-11-16T03:10:02.000Z</updated>
-        <content type="html"><![CDATA[<h2 id="nginx搭建域名访问环境">Nginx搭建域名访问环境</h2>
-<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637032446105.png" alt="" loading="lazy"></figure>
-<ol>
-<li>改hosts文件</li>
-</ol>
-<pre><code class="language-txt"># mall
-192.168.180.3 mall.com
-</code></pre>
-<ol start="2">
-<li>让nginx执行反向代理<br>
-<img src="https://dxone1.github.io//post-images/1637033085703.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1637033729229.png" alt="" loading="lazy"></li>
-<li>nginx搭配网关实现负载均衡<br>
-<img src="https://dxone1.github.io//post-images/1637034269351.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1637034276264.png" alt="" loading="lazy"><br>
-在网关添加基于域名的路由规则<br>
-注意在Nginx代理给网关的时候会丢掉host信息，必须配置！<br>
-<img src="https://dxone1.github.io//post-images/1637034850812.png" alt="" loading="lazy"></li>
-</ol>
-<pre><code class="language-yaml">- id: mall_host_route
-    uri: lb://mall-product
-    # 使用Host域名方式进行路由：任意mall.com旗下的全部路由给mall-product
-    predicates:
-    - Host=**.mall.com
-</code></pre>
-<p>效果<br>
-<img src="https://dxone1.github.io//post-images/1637034920577.png" alt="" loading="lazy"></p>
-<h2 id="压力测试">压力测试</h2>
-<p>使用Apache JMeter压测工具进行<br>
-访问mall.com的地址，观察一个聚合报告<br>
-<img src="https://dxone1.github.io//post-images/1637036493024.png" alt="" loading="lazy"><br>
-性能偏低原因在于：CPU同时在运行一个python仿真程序，且限制了每个服务的最大堆内存</p>
-<h2 id="性能调优">性能调优</h2>
-<p>考虑一个已有的场景： 请求 -&gt; nginx -&gt; gateway -&gt; mall-product（渲染首页）</p>
-<ol>
-<li>Nginx测试<br>
-使用Jmeter压测，通过docker stats命令实时监控<br>
-<img src="https://dxone1.github.io//post-images/1637046083726.png" alt="" loading="lazy"><br>
-可以看到Nginx占用CPU很高，但是吞吐量很高<br>
-<img src="https://dxone1.github.io//post-images/1637046261797.png" alt="" loading="lazy"></li>
-<li>网关测试<br>
-<img src="https://dxone1.github.io//post-images/1637046508893.png" alt="" loading="lazy"><br>
-吞吐量也很高<br>
-J VisualVM测试Eden区有点小，GC次数多<br>
-<img src="https://dxone1.github.io//post-images/1637046554346.png" alt="" loading="lazy"></li>
-<li>Gateway + 简单页面<br>
-在增加中间件后链路吞吐量大幅下降！</li>
-<li>访问mall.com 全链路<br>
-<img src="https://dxone1.github.io//post-images/1637047278718.png" alt="" loading="lazy"><br>
-压测发现渲染分类菜单拖慢了整个系统的速度，一级菜单的渲染主要消耗在查数据库和thymleaf的页面渲染上，三级分类则主要是查数据库耗时。此外，在页面渲染获取静态页面时耗时也是很可怕的。</li>
-</ol>
-<h3 id="简单优化数据库">简单优化数据库</h3>
-<p>开启缓存，日志级别调低至error，优化数据库<br>
-controller中的indexPage方法只查询一级分类，只涉及parent_cid字段的查询操作，可以考虑建立索引，发现吞吐量大幅提高<br>
-<img src="https://dxone1.github.io//post-images/1637049151641.png" alt="" loading="lazy"></p>
-<h3 id="nginx动静分离">Nginx动静分离</h3>
-<p>指定 /static/下的所有请求都由Nginx处理<br>
-<img src="https://dxone1.github.io//post-images/1637050290116.png" alt="" loading="lazy"><br>
-这样所有的静态资源直接由Nginx返回，不需要再转发到tomcat处理了</p>
-<h3 id="jvm调优">JVM调优</h3>
-<p>使用如下参数进行调优<br>
-<img src="https://dxone1.github.io//post-images/1637051516591.png" alt="" loading="lazy"></p>
-<h3 id="优化三级分类业务">优化三级分类业务</h3>
-<p>将多次查表操作优化为单次查表再筛选</p>
-<pre><code class="language-java">@Override
-public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
-    /**
-        * 将多次查数据库优化为一次
-        */
-    List&lt;CategoryEntity&gt; selectList = baseMapper.selectList(null);
-    // 查出所有一级分类
-    List&lt;CategoryEntity&gt; level1Categorys = getParent_cid(selectList, 0L);
-    // 封装数据
-    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; map = level1Categorys.stream().collect(Collectors.toMap(k -&gt; k.getCatId().toString(),
-            v -&gt; {
-                // 查询所有一级分类下的二级分类
-                List&lt;CategoryEntity&gt; categoryEntities = getParent_cid(selectList, v.getCatId());
-                List&lt;Catelog2Vo&gt; catelog2Vos = null;
-                if (categoryEntities != null) {
-                    catelog2Vos = categoryEntities.stream().map(l2 -&gt; {
-                        Catelog2Vo catelog2Vo = new Catelog2Vo(v.getCatId().toString(), null, l2.getCatId().toString(), l2.getName());
-                        List&lt;CategoryEntity&gt; level3Catelog = getParent_cid(selectList, l2.getCatId());
-                        if (level3Catelog != null) {
-                            List&lt;Catelog2Vo.Catelog3Vo&gt; collect = level3Catelog.stream().map(l3 -&gt; {
-                                Catelog2Vo.Catelog3Vo catelog3Vo = new Catelog2Vo.Catelog3Vo(l2.getCatId().toString(), l3.getCatId().toString(), l3.getName());
-                                return catelog3Vo;
-                            }).collect(Collectors.toList());
-                            catelog2Vo.setCatalog3List(collect);
-                        }
-                        return catelog2Vo;
-                    }).collect(Collectors.toList());
-                }
-                return catelog2Vos;
-            }));
-    return map;
-}
-
-private List&lt;CategoryEntity&gt; getParent_cid(List&lt;CategoryEntity&gt; selectList, Long parent_cid) {
-    List&lt;CategoryEntity&gt; collect = selectList.stream().filter(item -&gt; item.getParentCid() == parent_cid).collect(Collectors.toList());
-    return collect;
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1637052446002.png" alt="" loading="lazy"><br>
-吞吐量大幅上涨</p>
 ]]></content>
     </entry>
 </feed>
