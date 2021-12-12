@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-12-11T08:56:36.655Z</updated>
+    <updated>2021-12-12T08:30:54.827Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,200 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day22：集群]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day22ji-qun/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day22ji-qun/">
+        </link>
+        <updated>2021-12-11T09:06:47.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="mysql集群">MySQL集群</h2>
+<p>MySQL-MMM 是 Master-Master Replication Manager for MySQL（mysql 主主复制管理器） 的简称， 是 Google 的开源项目（Perl 脚本） 。 MMM 基于 MySQL Replication 做的扩展架构， 主要用来监控 mysql 主主复制并做失败转移。 其原理是将真实数据库节点的IP（RIP） 映射为虚拟 IP（VIP） 集。mysql-mmm 的监管端会提供多个虚拟 IP（VIP） ， 包括一个可写 VIP，多个可读 VIP， 通过监管的管理， 这些 IP 会绑定在可用 mysql 之上， 当某一台 mysql 宕机时， 监管会将 VIP迁移至其他 mysql。 在整个监管过程中， 需要在 mysql 中添加相关授权用户， 以便让 mysql 可以支持监理机的维护。<br>
+<img src="https://dxone1.github.io//post-images/1639213733205.png" alt="" loading="lazy"><br>
+InnoDB Cluster 支持自动 Failover、 强一致性、 读写分离、 读库高可用、 读请求负载均衡， 横向扩展的特性， 是比较完备的一套方案。 但是部署起来复杂， 想要解决 router单点问题好需要新增组件， 如没有其他更好的方案可考虑该方案。 InnoDB Cluster 主要由 MySQL Shell、 MySQL Router 和 MySQL 服务器集群组成， 三者协同工作， 共同为MySQL 提供完整的高可用性解决方案。 MySQL Shell 对管理人员提供管理接口， 可以很方便的对集群进行配置和管理,MySQL Router 可以根据部署的集群状况自动的初始化， 是客户端连接实例。 如果有节点 down 机， 集群会自动更新配置。 集群包含单点写入和多点写入两种模式。 在单主模式下， 如果主节点 down 掉， 从节点自动替换上来，MySQL Router 会自动探测， 并将客户端连接到新节点。<br>
+<img src="https://dxone1.github.io//post-images/1639213936294.png" alt="" loading="lazy"></p>
+<h3 id="mysql企业级部署">Mysql企业级部署</h3>
+<p><img src="https://dxone1.github.io//post-images/1639214175874.png" alt="" loading="lazy"><br>
+在大数据量情况下需要做分库分表，提升Mysql的检索效率。通过在主库开启日志并给一个账号权限，从库使用这个可读的权限即可同步主库的数据。</p>
+<h3 id="shardingsphere">ShardingSphere</h3>
+<p><img src="https://dxone1.github.io//post-images/1639217771624.png" alt="" loading="lazy"><br>
+ShardingProxy可以执行分库分表策略，按照官网介绍配置主从和分库分表的策略，则以后连接ShardingProxy而不是直接数据库的端口。ShardingProxy启动以后如下图<br>
+<img src="https://dxone1.github.io//post-images/1639227443247.png" alt="" loading="lazy"><br>
+在sqlyog建立新的连接，直接连接到localhost:3388（因为是在windows上使用<code>start.bat 3388</code>启动）<br>
+在配置中指定了分表在sharding_db中暴露，这样在这里面进行的更新操作都会分库分表到按策略计算的实际数据库表中<br>
+<img src="https://dxone1.github.io//post-images/1639228331290.png" alt="" loading="lazy"><br>
+在其中创建两个表<br>
+<img src="https://dxone1.github.io//post-images/1639228552019.png" alt="" loading="lazy"><br>
+实际数据库中也会存在<br>
+<img src="https://dxone1.github.io//post-images/1639228599995.png" alt="" loading="lazy"><br>
+执行如下的sql语句，从ShardingProxy看来是都存在了一个表t_order中<br>
+<img src="https://dxone1.github.io//post-images/1639228944181.png" alt="" loading="lazy"><br>
+但是实际的存储中则分库分表了<br>
+<img src="https://dxone1.github.io//post-images/1639229097611.png" alt="" loading="lazy"></p>
+<h2 id="redis集群">Redis集群</h2>
+<p>类似Mysql，也是拥有代理连接而非直接连向数据库。使用的是redis cluster，是一种官方的高可用方案。<br>
+<img src="https://dxone1.github.io//post-images/1639229473466.png" alt="" loading="lazy"><br>
+基于hash槽，通过桶分配类似的操作分配<br>
+<img src="https://dxone1.github.io//post-images/1639229560662.png" alt="" loading="lazy"><br>
+Redis-cluster有着一些限制，因为节点分开无法支持跨slot的批量操作，同时只支持db0这一个数据库空间。网络路由也可能有更大的开销。按照三主三从的方式测试部署一个Redis集群</p>
+<h3 id="部署测试">部署测试</h3>
+<ol>
+<li>使用如下脚本进行部署</li>
+</ol>
+<pre><code class="language-java">for port in $(seq 7001 7006); \
+do \
+mkdir -p /mydata/redis/node-${port}/conf
+touch /mydata/redis/node-${port}/conf/redis.conf
+cat &lt;&lt; EOF &gt;/mydata/redis/node-${port}/conf/redis.conf
+port ${port}
+cluster-enabled yes
+cluster-config-file nodes.conf
+cluster-node-timeout 5000
+cluster-announce-ip 192.168.180.3
+cluster-announce-port ${port}
+cluster-announce-bus-port 1${port}
+appendonly yes
+EOF
+docker run -p ${port}:${port} -p 1${port}:1${port} --name redis-${port} \
+-v /mydata/redis/node-${port}/data:/data \
+-v /mydata/redis/node-${port}/conf/redis.conf:/etc/redis/redis.conf \
+-d redis:5.0.7 redis-server /etc/redis/redis.conf; \
+done
+</code></pre>
+<ol start="2">
+<li>建立集群<br>
+进入到一个节点的bash中，使用如下命令建立集群</li>
+</ol>
+<pre><code class="language-java">redis-cli --cluster create 192.168.180.3:7001 192.168.180.3:7002 192.168.180.3:7003 192.168.180.3:7004 192.168.180.3:7005 192.168.180.3:7006 --cluster-replicas 1
+</code></pre>
+<p><img src="https://dxone1.github.io//post-images/1639230944281.png" alt="" loading="lazy"><br>
+最终集群方式如下<br>
+<img src="https://dxone1.github.io//post-images/1639230995066.png" alt="" loading="lazy"><br>
+数据的主从和分片存储：<br>
+<img src="https://dxone1.github.io//post-images/1639231157661.png" alt="" loading="lazy"><br>
+主从保存：<br>
+<img src="https://dxone1.github.io//post-images/1639231320662.png" alt="" loading="lazy"><br>
+当关闭主节点7001模仿突发宕机，可以看到从节点7004晋升为主节点。<br>
+<img src="https://dxone1.github.io//post-images/1639288922997.png" alt="" loading="lazy"><br>
+当7001被重新恢复，可以看到它变成了7004的从节点。<br>
+<img src="https://dxone1.github.io//post-images/1639289288776.png" alt="" loading="lazy"></p>
+<h2 id="es集群">ES集群</h2>
+<ul>
+<li>一个运行中的 Elasticsearch 实例称为一个节点， 而集群是由一个或者多个拥有相同cluster.name 配置的节点组成， 它们共同承担数据和负载的压力。 当有节点加入集群中或者从集群中移除节点时， 集群将会重新平均分布所有的数据。</li>
+<li>当一个节点被选举成为 主节点时， 它将负责管理集群范围内的所有变更， 例如增加、删除索引， 或者增加、 删除节点等。 而主节点并不需要涉及到文档级别的变更和搜索等操作， 所以当集群只拥有一个主节点的情况下， 即使流量的增加它也不会成为瓶颈。任何节点都可以成为主节点。 我们的示例集群就只有一个节点， 所以它同时也成为了主<br>
+节点。</li>
+<li>作为用户， 我们可以将请求发送到 集群中的任何节点 ， 包括主节点。 每个节点都知道任意文档所处的位置， 并且能够将我们的请求直接转发到存储我们所需文档的节点。无论我们将请求发送到哪个节点， 它都能负责从各个包含我们所需文档的节点收集回数据， 并将最终结果返回給客户端。 Elasticsearch 对这一切的管理都是透明的。</li>
+</ul>
+<h3 id="es状态">ES状态</h3>
+<p>使用<code>GET /_cluster/health</code>查看集群的状态。有三种状态：green 、 yellow 或者 red。如果设定单机状态下分片为3，复制为1，因为无法复制一份备份而三个分片可以部署，所以状态为yellow。</p>
+<pre><code class="language-java">PUT /blogs{
+    &quot;settings&quot; : {
+        &quot;number_of_shards&quot; : 3,
+        &quot;number_of_replicas&quot; : 1
+    }
+}
+</code></pre>
+<p><strong>旧版如何解决脑裂问题：</strong><br>
+采用类似raft的策略，只有集群中一半以上的节点投票成功才晋升。合并时按照更高选举轮次决定。</p>
+<h3 id="构建集群">构建集群</h3>
+<p>构建一个三注三从的ES集群测试。模拟三台服务器，每台服务器安装一个data节点和一个master节点。<br>
+<img src="https://dxone1.github.io//post-images/1639290424941.png" alt="" loading="lazy"></p>
+<ol>
+<li>运行命令，防止JVM报错<br>
+<code>sysctl -w vm.max_map_count=262144</code></li>
+<li>准备一个docker网络，模拟三台服务器<br>
+<code>docker network create --driver bridge --subnet=172.18.12.0/16 --gateway=172.18.1.1 mynet</code></li>
+<li>使用脚本创建三个master节点和三个data节点</li>
+</ol>
+<pre><code class="language-java">// 创建master节点
+for port in $(seq 1 3); \
+do \
+mkdir -p /mydata/elasticsearch/master-${port}/config
+mkdir -p /mydata/elasticsearch/master-${port}/data
+chmod -R 777 /mydata/elasticsearch/master-${port}
+cat &lt;&lt; EOF &gt;/mydata/elasticsearch/master-${port}/config/elasticsearch.yml
+cluster.name: my-es #集群的名称， 同一个集群该值必须设置成相同的
+node.name: es-master-${port} #该节点的名字
+node.master: true #该节点有机会成为 master 节点
+node.data: false #该节点不可以存储数据
+network.host: 0.0.0.0
+http.host: 0.0.0.0 #所有 http 均可访问
+http.port: 920${port}
+transport.tcp.port: 930${port}
+#discovery.zen.minimum_master_nodes: 2 #设置这个参数来保证集群中的节点可以知道其它 N 个有 master 资格的节点。 官方推荐（N/2） +1
+discovery.zen.ping_timeout: 10s #设置集群中自动发现其他节点时 ping 连接的超时时间
+discovery.seed_hosts: [&quot;172.18.12.21:9301&quot;, &quot;172.18.12.22:9302&quot;, &quot;172.18.12.23:9303&quot;] #设置集群中的 Master 节点的初始列表， 可以通过这些节点来自动发现其他新加入集群的节点， es7的新增配置
+cluster.initial_master_nodes: [&quot;172.18.12.21&quot;] #新集群初始时的候选主节点， es7 的新增配置
+EOF
+docker run --name elasticsearch-node-${port} \
+-p 920${port}:920${port} -p 930${port}:930${port} \
+--network=mynet --ip 172.18.12.2${port} \
+-e ES_JAVA_OPTS=&quot;-Xms300m -Xmx300m&quot; \
+-v /mydata/elasticsearch/master-${port}/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml \
+-v /mydata/elasticsearch/master-${port}/data:/usr/share/elasticsearch/data \
+-v /mydata/elasticsearch/master-${port}/plugins:/usr/share/elasticsearch/plugins \
+-d elasticsearch:7.4.2
+done
+</code></pre>
+<pre><code class="language-java">// 创建data节点
+for port in $(seq 4 6); \
+do \
+mkdir -p /mydata/elasticsearch/node-${port}/config
+mkdir -p /mydata/elasticsearch/node-${port}/data
+chmod -R 777 /mydata/elasticsearch/node-${port}
+cat &lt;&lt; EOF &gt;/mydata/elasticsearch/node-${port}/config/elasticsearch.yml
+cluster.name: my-es #集群的名称， 同一个集群该值必须设置成相同的
+node.name: es-node-${port} #该节点的名字
+node.master: false #该节点有机会成为 master 节点
+node.data: true #该节点可以存储数据
+network.host: 0.0.0.0
+#network.publish_host: 192.168.56.10 #互相通信 ip， 要设置为本机可被外界访问的 ip， 否则无法通信
+http.host: 0.0.0.0 #所有 http 均可访问
+http.port: 920${port}
+transport.tcp.port: 930${port}
+#discovery.zen.minimum_master_nodes: 2 #设置这个参数来保证集群中的节点可以知道其它 N 个有 master 资格的节点。 官方推荐（N/2） +1
+discovery.zen.ping_timeout: 10s #设置集群中自动发现其他节点时 ping 连接的超时时间
+discovery.seed_hosts: [&quot;172.18.12.21:9301&quot;, &quot;172.18.12.22:9302&quot;, &quot;172.18.12.23:9303&quot;] #设置集群中的 Master 节点的初始列表， 可以通过这些节点来自动发现其他新加入集群的节点， es7的新增配置
+cluster.initial_master_nodes: [&quot;172.18.12.21&quot;] #新集群初始时的候选主节点， es7 的新增配置
+EOF
+docker run --name elasticsearch-node-${port} \
+-p 920${port}:920${port} -p 930${port}:930${port} \
+--network=mynet --ip 172.18.12.2${port} \
+-e ES_JAVA_OPTS=&quot;-Xms300m -Xmx300m&quot; \
+-v/mydata/elasticsearch/node-${port}/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml \
+-v /mydata/elasticsearch/node-${port}/data:/usr/share/elasticsearch/data \
+-v /mydata/elasticsearch/node-${port}/plugins:/usr/share/elasticsearch/plugins \
+-d elasticsearch:7.4.2
+done
+</code></pre>
+<h2 id="rabbitmq集群">RabbitMQ集群</h2>
+<p>RabbiMQ 是用 Erlang 开发的， 集群非常方便， 因为 Erlang 天生就是一门分布式语言， 但其本身并不支持负载均衡。RabbitMQ 集群中节点包括内存节点(RAM)、 磁盘节点(Disk， 消息持久化)， 集群中至少有一个 Disk 节点。</p>
+<ul>
+<li>普通模式(默认)<br>
+对于普通模式， 集群中各节点有相同的队列结构， 但消息只会存在于集群中的一个节点。 对于消费者来说， 若消息进入 A 节点的 Queue 中， 当从 B 节点拉取时， RabbitMQ 会将消息从 A 中取出， 并经过 B 发送给消费者。<br>
+应用场景： 该模式各适合于消息无需持久化的场合， 如日志队列。 当队列非持久化， 且创建该队列的节点宕机， 客户端才可以重连集群其他节点， 并重新创建队列。 若为持久化，只能等故障节点恢复。</li>
+<li>镜像模式<br>
+与普通模式不同之处是消息实体会主动在镜像节点间同步， 而不是在取数据时临时拉取， 高可用； 该模式下， mirror queue 有一套选举算法，即 1 个 master、 n 个 slaver， 生产者、 消费者的请求都会转至 master。<br>
+应用场景： 可靠性要求较高场合， 如下单、 库存队列。<br>
+缺点： 若镜像队列过多， 且消息体量大， 集群内部网络带宽将会被此种同步通讯所消耗。</li>
+</ul>
+<h3 id="测试">测试</h3>
+<ol>
+<li>搭建集群</li>
+</ol>
+<pre><code class="language-java">docker run -d --hostname rabbitmq01 --name rabbitmq01 -v /mydata/rabbitmq/rabbitmq01:/var/lib/rabbitmq -p 15673:15672 -p 5673:5672 -e RABBITMQ_ERLANG_COOKIE='atguigu' rabbitmq:management
+
+docker run -d --hostname rabbitmq02 --name rabbitmq02 -v /mydata/rabbitmq/rabbitmq02:/var/lib/rabbitmq -p 15674:15672 -p 5674:5672 -e RABBITMQ_ERLANG_COOKIE='atguigu' --link rabbitmq01:rabbitmq01 rabbitmq:management
+
+docker run -d --hostname rabbitmq03 --name rabbitmq03 -v /mydata/rabbitmq/rabbitmq03:/var/lib/rabbitmq -p 15675:15672 -p 5675:5672 -e RABBITMQ_ERLANG_COOKIE='atguigu' --link rabbitmq01:rabbitmq01 --link rabbitmq02:rabbitmq02 rabbitmq:management
+</code></pre>
+<ol start="2">
+<li>节点加入集群<br>
+<img src="https://dxone1.github.io//post-images/1639297326597.png" alt="" loading="lazy"></li>
+<li>建立镜像集群<br>
+在master节点使用<code>rabbitmqctl set_policy -p / ha &quot;^&quot; '{&quot;ha-mode&quot;:&quot;all&quot;,&quot;ha-sync-mode&quot;:&quot;automatic&quot;}'</code>设置所有队列为高可用模式。这样就实现了高可用的mq备份。</li>
+</ol>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day21：Kubernetes ]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day21kubernetes/</id>
@@ -3926,350 +4120,6 @@ private SearchResult buildSearchResult(SearchResponse response, SearchParam para
 <img src="https://dxone1.github.io//post-images/1637381005577.png" alt="" loading="lazy"><br>
 面包屑导航<br>
 <img src="https://dxone1.github.io//post-images/1637409332795.png" alt="" loading="lazy"></p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城项目 day12：使用缓存]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day12shi-yong-huan-cun/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day12shi-yong-huan-cun/">
-        </link>
-        <updated>2021-11-16T08:51:04.000Z</updated>
-        <content type="html"><![CDATA[<p>在业务中为了提升性能表现，mysql数据库将只负责数据的持久化，而加速访问则需要将部分数据存入缓存中。<br>
-哪些数据适合放入缓存？</p>
-<ul>
-<li>即时性、 数据一致性要求不高的</li>
-<li>访问量大且更新频率不高的数据（读多， 写少）<br>
-<img src="https://dxone1.github.io//post-images/1637053007728.png" alt="" loading="lazy"><br>
-本地缓存会出现数据一致性的问题，所以需要使用分布式缓存架构。单独提出一个缓存服务器即可完成<br>
-<img src="https://dxone1.github.io//post-images/1637053641754.png" alt="" loading="lazy"></li>
-</ul>
-<h2 id="使用redis">使用Redis</h2>
-<ol>
-<li>在项目依赖中引入Redis</li>
-</ol>
-<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
-    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
-&lt;/dependency&gt;
-</code></pre>
-<ol start="2">
-<li>在yaml中配置redis的相关信息</li>
-</ol>
-<pre><code class="language-yaml">spring: 
-    redis:
-        host: 192.168.180.3
-        port: 6379
-</code></pre>
-<p>在Redis中存储的数据往往是&lt;String, String&gt;格式，所以可以使用StringRedisTemplate自动配置。其他的使用RedisTemplate<br>
-3. 测试</p>
-<pre><code class="language-java">@Test
-public void testStringRedisTemplate() {
-    ValueOperations&lt;String, String&gt; ops = stringRedisTemplate.opsForValue();
-    // 保存
-    ops.set(&quot;hello&quot;, &quot;world&quot; + UUID.randomUUID().toString());
-    // 查询
-    String hello = ops.get(&quot;hello&quot;);
-    System.out.println(hello);
-}
-</code></pre>
-<h2 id="在商城业务中加入缓存功能">在商城业务中加入缓存功能</h2>
-<p>在分类控制器 CategoryService中添加缓存功能<br>
-将原先的业务逻辑抽取为<code>getCatalogJsonFromDb()</code>的方法，然后重写带缓存的获取分类信息的业务代码</p>
-<pre><code class="language-java">@Override
-public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJson() {
-    ValueOperations&lt;String, String&gt; ops = redisTemplate.opsForValue();
-    String catalogJSON = ops.get(&quot;catalogJSON&quot;);
-    // 缓存为空则需要查询数据库
-    if(StringUtils.isEmpty(catalogJSON)) {
-        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; catalogJsonFromDb = getCatalogJsonFromDb();
-        // 放入缓存
-        String s = JSON.toJSONString(catalogJsonFromDb);
-        ops.set(&quot;catalogJSON&quot;, s);
-        return catalogJsonFromDb;
-    }
-    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
-    return res;
-}
-</code></pre>
-<p><strong>堆外内存溢出</strong><br>
-SpringBoot2默认使用Lettuce作为操作客户端，使用netty进行网络通信，Lettuce的bug会导致堆外内存溢出 -Xmx100m, netty没有指定下会使用与其一致的堆外内存。<br>
-可以通过 -Dio.netty.maxDirectMemory设置，但是只能减缓出现溢出的时间，解决方案：1. 升级Lettuce客户端 2. 使用jedis</p>
-<pre><code class="language-xml">&lt;!--引入Redis作为缓存中间件--&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
-    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
-    &lt;exclusions&gt;
-        &lt;exclusion&gt;
-            &lt;groupId&gt;io.lettuce&lt;/groupId&gt;
-            &lt;artifactId&gt;lettuce-core&lt;/artifactId&gt;
-        &lt;/exclusion&gt;
-    &lt;/exclusions&gt;
-&lt;/dependency&gt;
-
-&lt;dependency&gt;
-    &lt;groupId&gt;redis.clients&lt;/groupId&gt;
-    &lt;artifactId&gt;jedis&lt;/artifactId&gt;
-&lt;/dependency&gt;
-</code></pre>
-<p>大幅提高了响应效率和吞吐量<br>
-<img src="https://dxone1.github.io//post-images/1637117151652.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1637117212321.png" alt="" loading="lazy"></p>
-<h2 id="缓存失效问题">缓存失效问题</h2>
-<ol>
-<li>缓存穿透</li>
-</ol>
-<ul>
-<li>缓存穿透是指查询一个一定不存在的数据， 由于缓存是不命中， 将去查询数据库， 但是数<br>
-据库也无此记录， 我们没有将这次查询的 null 写入缓存， 这将导致这个不存在的数据每次<br>
-请求都要到存储层去查询， 失去了缓存的意义。</li>
-<li>在流量大时， 可能 DB 就挂掉了， 要是有人利用不存在的 key 频繁攻击我们的应用， 这就是<br>
-漏洞。</li>
-<li>解决：<br>
-缓存空结果、 并且设置短的过期时间。</li>
-</ul>
-<ol start="2">
-<li>缓存雪崩</li>
-</ol>
-<ul>
-<li>缓存雪崩是指在我们设置缓存时采用了相同的过期时间， 导致缓存在某一时刻同时失<br>
-效， 请求全部转发到 DB， DB 瞬时压力过重雪崩。</li>
-<li>解决：<br>
-原有的失效时间基础上增加一个随机值， 比如 1-5 分钟随机， 这样每一个缓存的过期时间的<br>
-重复率就会降低， 就很难引发集体失效的事件。</li>
-</ul>
-<ol start="3">
-<li>缓存击穿</li>
-</ol>
-<ul>
-<li>对于一些设置了过期时间的 key， 如果这些 key 可能会在某些时间点被超高并发地访问，<br>
-是一种非常“热点”的数据。</li>
-<li>这个时候， 需要考虑一个问题： 如果这个 key 在大量请求同时进来前正好失效， 那么所<br>
-有对这个 key 的数据查询都落到 db， 我们称为缓存击穿。</li>
-<li>解决：<br>
-加锁</li>
-</ul>
-<h2 id="加锁">加锁</h2>
-<ol>
-<li>简单的本地锁</li>
-</ol>
-<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDb() {
-        /**
-         * 将多次查数据库优化为一次
-         */
-        synchronized (this) {
-            String catalogJSON = redisTemplate.opsForValue().get(&quot;catalogJSON&quot;);
-            if(!StringUtils.isEmpty(catalogJSON)) {
-                //缓存不为空直接返回
-                //double check的逻辑
-                Map&lt;String, List&lt;Catelog2Vo&gt;&gt; res = JSON.parseObject(catalogJSON, new TypeReference&lt;Map&lt;String, List&lt;Catelog2Vo&gt;&gt;&gt;(){});
-                return res;
-            }
-      ......
-
-      // 将放入缓存操作也放入锁同步块中
-        String s = JSON.toJSONString(map);
-        redisTemplate.opsForValue().set(&quot;catalogJSON&quot;, s, 1, TimeUnit.DAYS);
-        return map;
-}
-</code></pre>
-<p>类似于Double check的机制，但是在分布式集群情况下则因为每个进程只能锁自己的，所以无法实现完全的加锁，这时候就需要分布式锁。然而实际上在一般规模集群也可以防止缓存击穿。<br>
-发现只有一次的查数据库操作<br>
-<img src="https://dxone1.github.io//post-images/1637126480451.png" alt="" loading="lazy"><br>
-2. 分布式锁<br>
-当有多个应用时测试，会有可能多个线程都查询了数据库，想要实现全局只有一次查询则需要添加分布式锁<br>
-<img src="https://dxone1.github.io//post-images/1637126981627.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1637126984844.png" alt="" loading="lazy"><br>
-分布式锁的机制<br>
-<img src="https://dxone1.github.io//post-images/1637130836138.png" alt="" loading="lazy"><br>
-使用<code>setnx()</code>命令可以尝试原子的给redeis设置锁，如果已经存在了则无法成功上锁。执行<code>set lock 1 NX</code>即同时只有一个会加上锁。<br>
-在加锁时，必须原子地设置过期时间，否则因为线程崩溃会导致死锁。同时，解锁也需要原子地判断当前解锁的是否是当前线程设置的锁，必须匹配锁的value才可以解锁，这也需要时原子性操作，可以使用LUA脚本实现。保证了所有线程只查询一次数据库，但是吞吐量下降了不少：</p>
-<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedisLock() {
-    // 占用分布式锁
-    String uuid = UUID.randomUUID().toString();
-    Boolean lock = redisTemplate.opsForValue().setIfAbsent(&quot;lock&quot;, uuid, 10, TimeUnit.SECONDS);
-    if (lock) {
-        // 加锁成功
-        System.out.println(&quot;分布式锁获取成功...&quot;);
-        Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
-        try {
-            dataFromDb = getDataFromDb();
-        } finally {
-            /**
-                * 直接删除锁有可能
-                * 因为业务时间过长，锁自动失效，删除的是别的线程的锁！
-                * 解决方法是加入唯一标识。
-                * 然而到redis通信也仍然可能因为非原子操作而导致错误！需要使用lua脚本实现
-                */
-            String script = &quot;if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end&quot;;
-            Long lockSuccess = redisTemplate.execute(new DefaultRedisScript&lt;Long&gt;(script, Long.class), Arrays.asList(&quot;lock&quot;), uuid);
-        }
-        return dataFromDb;
-    } else {
-        // 加锁不成功...重试
-        System.out.println(&quot;获取分布式锁不成功，等待重试...&quot;);
-        try {
-            Thread.sleep(200);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        return getCatalogJsonFromDbWithRedisLock(); //自旋
-    }
-}
-</code></pre>
-<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637136159650.png" alt="" loading="lazy"></figure>
-<h2 id="使用redisson分布式框架">使用Redisson分布式框架</h2>
-<ol>
-<li>引入依赖</li>
-</ol>
-<pre><code class="language-xml">&lt;!--作为分布式锁/对象框架--&gt;
-&lt;dependency&gt;
-    &lt;groupId&gt;org.redisson&lt;/groupId&gt;
-    &lt;artifactId&gt;redisson&lt;/artifactId&gt;
-    &lt;version&gt;3.12.0&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-<ol start="2">
-<li>配置</li>
-</ol>
-<pre><code class="language-java">@Configuration
-public class MyRedissonConfig {
-    @Bean(destroyMethod=&quot;shutdown&quot;)
-    RedissonClient redisson() throws IOException {
-        Config config = new Config();
-        config.useSingleServer().setAddress(&quot;192.168.180.3:6379&quot;);
-        return Redisson.create(config);
-    }
-}
-</code></pre>
-<ol start="3">
-<li>使用<br>
-Redisson的分布式锁实现了JUC的Lock接口，可以直接按照JUC的思维编写，底层的分布式锁操作被封装为透明的。Redisson也可以实现锁的自动续期。即在业务期间也会续上锁的生存周期。<br>
-读写锁的逻辑：<br>
-读写互斥，读之间共享，写之间互斥</li>
-</ol>
-<pre><code class="language-java">public Map&lt;String, List&lt;Catelog2Vo&gt;&gt; getCatalogJsonFromDbWithRedissonLock() {
-    RLock lock = redisson.getLock(&quot;CatalogJson-lock&quot;);
-    lock.lock(10, TimeUnit.SECONDS);
-    // 加锁成功
-    System.out.println(&quot;分布式锁获取成功...&quot;);
-    Map&lt;String, List&lt;Catelog2Vo&gt;&gt; dataFromDb = null;
-    try {
-        dataFromDb = getDataFromDb();
-    } finally {
-        lock.unlock();
-    }
-    return dataFromDb;
-}
-</code></pre>
-<ol start="4">
-<li>缓存一致性问题</li>
-</ol>
-<ul>
-<li>双写：每次更新数据库都修改缓存</li>
-<li>失效：每次更新只删除缓存，等查询未命中再添加<br>
-可以使用Canal解决缓存一致性问题，采用订阅机制，类似于观察者模式的推送更新。本项目使用分布式读写锁解决<br>
-<img src="https://dxone1.github.io//post-images/1637156753301.png" alt="" loading="lazy"></li>
-</ul>
-<h2 id="统一缓存技术spring-cache">统一缓存技术：Spring Cache</h2>
-<p>Spring 从 3.1 开始定义了 org.springframework.cache.Cache 和org.springframework.cache.CacheManager 接口来统一不同的缓存技术；并支持使用 JCache（JSR-107） 注解简化我们开发<br>
-Cache 接口为缓存的组件规范定义， 包含缓存的各种操作集合；Cache 接 口 下 Spring 提 供 了 各 种 xxxCache 的 实 现 ； 如 RedisCache ， EhCacheCache , ConcurrentMapCache 等<br>
-<img src="https://dxone1.github.io//post-images/1637157410269.png" alt="" loading="lazy"></p>
-<ol>
-<li>引入依赖</li>
-</ol>
-<pre><code class="language-xml">&lt;dependency&gt;
-    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
-    &lt;artifactId&gt;spring-boot-starter-cache&lt;/artifactId&gt;
-&lt;/dependency&gt;
-</code></pre>
-<ol start="2">
-<li>写配置<br>
-会自动配置RedisCacheConfiguration，也会自动配置缓存管理器RedisCacheManager<br>
-需要配置Redis的缓存策略</li>
-</ol>
-<pre><code class="language-txt">spring.cache.type=redis
-</code></pre>
-<ol start="3">
-<li>开启缓存功能 @EnableCaching</li>
-<li>使用注解完成缓存操作</li>
-</ol>
-<pre><code class="language-java">//需要指定放到哪个缓存分区中
-@Cacheable({&quot;category&quot;}) //代表当前方法的结果需要缓存，如果缓存中有则不调用，没有则调用方法并添加到缓存中
-@Override
-public List&lt;CategoryEntity&gt; getLevel1Categorys() {
-    long l = System.currentTimeMillis();
-    List&lt;CategoryEntity&gt; categoryEntities = this.baseMapper.selectList(new QueryWrapper&lt;CategoryEntity&gt;().eq(&quot;parent_cid&quot;, 0));
-    System.out.println(&quot;消耗时间: &quot; + (System.currentTimeMillis() - l));
-    return categoryEntities;
-}
-</code></pre>
-<p>配置文件中设置存活时间，使用注解的key属性定义key。将缓存数据保存为json格式可以使用自定义缓存管理器的方式。</p>
-<h3 id="自定义rediscacheconfiguration">自定义redisCacheConfiguration</h3>
-<p>可以在这里定义序列化配置</p>
-<pre><code class="language-java">@EnableCaching
-@Configuration
-public class MyCacheConfig {
-   @Bean
-    RedisCacheConfiguration redisCacheConfiguration(CacheProperties cacheProperties) {
-        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig();
-        config = config.serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()));
-        config = config.serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
-        // 将配置文件中的配置配置上
-        CacheProperties.Redis redisProperties = cacheProperties.getRedis();
-        if (redisProperties.getTimeToLive() != null) {
-            config = config.entryTtl(redisProperties.getTimeToLive());
-        }
-        if (redisProperties.getKeyPrefix() != null) {
-            config = config.prefixKeysWith(redisProperties.getKeyPrefix());
-        }
-        if (!redisProperties.isCacheNullValues()) {
-            config = config.disableCachingNullValues();
-        }
-        if (!redisProperties.isUseKeyPrefix()) {
-            config = config.disableKeyPrefix();
-        }
-        return config;
-    }
-}
-</code></pre>
-<p>增加一些配置：</p>
-<pre><code class="language-txt">spring.cache.type=redis
-spring.cache.redis.time-to-live=3600000
-spring.cache.redis.key-prefix=CACHE_
-spring.cache.redis.use-key-prefix=true
-# 缓存空值，防止缓存穿透
-spring.cache.redis.cache-null-values=true
-</code></pre>
-<h3 id="失效模式-cacheevict">失效模式 @CacheEvict</h3>
-<p>一旦更新菜单就清空缓存</p>
-<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;)
-@Transactional
-@Override
-public void updateCascade(CategoryEntity category) {
-    this.updateById(category);
-    categoryBrandRelationService.updateCategory(category.getCatId(), category.getName());
-}
-</code></pre>
-<p>@Caching可以指定多个缓存操作，这样就可以一次清楚多个缓存</p>
-<pre><code class="language-java">@Caching(evict = {
-        @CacheEvict(value = &quot;category&quot;, key = &quot;'getLevel1Categorys'&quot;),
-        @CacheEvict(value = &quot;category&quot;, key = &quot;'getCatalogJson'&quot;)
-})
-</code></pre>
-<p>或者按照分区全部删除</p>
-<pre><code class="language-java">@CacheEvict(value = &quot;category&quot;, allEntries = true)
-</code></pre>
-<p>@CachePut：双写模式的接口，我们使用失效模式 @CacheEvict</p>
-<h3 id="原理">原理</h3>
-<ol>
-<li>穿透：可以设置存储空数据</li>
-<li>雪崩：可以设置过期时间</li>
-<li>击穿：加锁<br>
-SpringCache的会创建RedisCacheManager -&gt; RedisCache，默认是不加锁的。想解决击穿问题使用@Cacheable(sync = true)即可加本地锁。<br>
-@Cacheable是读方法<br>
-@CacheEvict是更新方法</li>
-</ol>
 ]]></content>
     </entry>
 </feed>
