@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-12-12T08:31:48.310Z</updated>
+    <updated>2021-12-16T13:52:00.895Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,340 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[商城项目 day23：在k8s中部署服务]]></title>
+        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day23zai-k8s-zhong-bu-shu-fu-wu/</id>
+        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day23zai-k8s-zhong-bu-shu-fu-wu/">
+        </link>
+        <updated>2021-12-12T08:35:11.000Z</updated>
+        <content type="html"><![CDATA[<p>k8s中也需要部署es, MySQL，Redis等等一系列项目需要的服务，最终需要将我们的商城服务部署完成。这个篇章用于讨论这个主题。</p>
+<h2 id="部署周边服务">部署周边服务</h2>
+<p>可以使用 kubesphere， 快速搭建 MySQL 环境。</p>
+<ul>
+<li>有状态服务抽取配置为 ConfigMap</li>
+<li>有状态服务必须使用 pvc 持久化数据</li>
+<li>服务集群内访问使用 DNS 提供的稳定域名</li>
+</ul>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1639298388283.png" alt="" loading="lazy"></figure>
+<ol>
+<li>首先创建master的配置文件<br>
+<img src="https://dxone1.github.io//post-images/1639299202813.png" alt="" loading="lazy"></li>
+<li>创建master的存储卷<br>
+<img src="https://dxone1.github.io//post-images/1639299390028.png" alt="" loading="lazy"></li>
+<li>创建master的服务<br>
+会生成一个供集群调用的DNS地址，直接访问不需要使用IP地址了。<br>
+<img src="https://dxone1.github.io//post-images/1639299737732.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1639299919459.png" alt="" loading="lazy"><br>
+slave节点的创建同理，这里省略。<br>
+<img src="https://dxone1.github.io//post-images/1639303468731.png" alt="" loading="lazy"><br>
+其他的所有服务都按照这个顺序部署即可。例如：开辟kibana的暴露端口如下，这是通过访问k8s集群得到的：<br>
+<img src="https://dxone1.github.io//post-images/1639314046190.png" alt="" loading="lazy"><br>
+最终部署好如下的周边服务：<br>
+<img src="https://dxone1.github.io//post-images/1639316294624.png" alt="" loading="lazy"></li>
+</ol>
+<h2 id="部署我们的服务">部署我们的服务</h2>
+<ol>
+<li>为每个项目准备一个Dockerfile，按照这个文件将项目制作成镜像</li>
+<li>为每个项目生成k8s描述文件Jekinsfile，完成自动部署</li>
+</ol>
+<h3 id="抽取配置">抽取配置</h3>
+<p>修改项目的各个配置文件，注意如nacos，sentinel，zipkin等服务原先暴露的端口是供浏览器访问的图像化界面，这里需要再创建一个新的服务，将其暴露给集群内使用。</p>
+<h3 id="编写dockerfile">编写Dockerfile</h3>
+<p>给每个服务编写dockerfile文件，帮助docker打包。为了部署的快捷，将所有的线上服务docker镜像全部暴露为8080端口，之外的pod使用这个docker接口。</p>
+<pre><code class="language-dockerfile">FROM java:8
+EXPOSE 8080
+
+VOLUME /tmp
+ADD target/*.jar  /app.jar
+RUN bash -c 'touch /app.jar'
+ENTRYPOINT [&quot;java&quot;,&quot;-jar&quot;,&quot;/app.jar&quot;,&quot;--spring.profiles.active=prod&quot;]
+</code></pre>
+<p>以-prod的配置为优先创建镜像。</p>
+<h3 id="为微服务编写部署描述文件">为微服务编写部署描述文件</h3>
+<p>微服务的部署描述文件包含deployment和service两个，一个实例如下：</p>
+<pre><code class="language-yaml">kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mall-auth-server
+  namespace: mall
+  labels:
+    app: mall-auth-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mall-auth-server
+  template:
+    metadata:
+      labels:
+        app: mall-auth-server
+    spec:
+      containers:
+        - name: mall-auth-server
+          image: $REGISTRY/$DOCKERHUB_NAMESPACE/$APP_NAME:$TAG_NAME
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 10Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+  
+---
+kind: Service
+apiVersion: v1
+metadata:
+name: mall-auth-server
+namespace: mall
+labels:
+    app: mall-auth-server
+spec:
+ports:
+    - name: http
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+    nodePort: 20001
+selector:
+    app: mall-auth-server
+type: NodePort
+sessionAffinity: None
+</code></pre>
+<p>端口的关系图如下：<br>
+<img src="https://dxone1.github.io//post-images/1639401683625.png" alt="" loading="lazy"></p>
+<pre><code class="language-java">- targetPort: docker暴露的服务端口
+- prot: 一组Pod封装成的Service暴露的服务端口（负载均衡）。每个pod都拥有独立的IP和DNS解析，所以pod间可以重复端口
+- nodePort: 共外部访问的端口，只要使用安装了对应服务的该端口都可以直接获取服务
+</code></pre>
+<h3 id="编写jekinsfile">编写Jekinsfile</h3>
+<ol>
+<li>参数化构建<br>
+通过编写Jekinsfile可以实现自动化流水线部署功能。可以通过编辑KubeSphere的流水线之后仿写Jekinsfile。以下是拉取代码的示例：<br>
+<img src="https://dxone1.github.io//post-images/1639403111856.png" alt="" loading="lazy"><br>
+可以通过编写<code>parameters</code>项目实现参数化构建。</li>
+<li>sonarqube代码质量分析<br>
+这一步首先指定了maven的镜像地址，配置在一个settings.xml文件中。将其替换为国内aliyun镜像服务。对于父工程mall，需要使用属性<code>sonar.java.binaries property</code>让sonarqube完成质量分析。<br>
+需要注意的是要自行编写一个mvn的配置文件，指定profile编译使用jdk1.8而非默认的1.5，否则与开发环境不一致，一些特性无法使用。分析完成的结果如下：<br>
+<img src="https://dxone1.github.io//post-images/1639468783919.png" alt="" loading="lazy"></li>
+<li>镜像构建和推送<br>
+需要使用之前指定的版本进行镜像构建和推送。通过自动化流水线完成这个过程：<br>
+<img src="https://dxone1.github.io//post-images/1639470998487.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1639471002422.png" alt="" loading="lazy"></li>
+<li>推送latest版本镜像<br>
+将之前构建好的镜像换标latest并推送</li>
+<li>部署到k8s集群<br>
+使用kubenetes命令将镜像部署到k8s的集群中</li>
+<li>发布版<br>
+在代码仓库（本项目使用gitee）提交发布版本</li>
+</ol>
+<h3 id="迁移数据库">迁移数据库</h3>
+<p>需要将测试使用的各种数据库部署到线上。将原先的数据库打包为转储文件，再创建一个mysql暴露nodePort端口的服务，通过该端口访问。这样就可以将数据库迁移过去。</p>
+<h3 id="部署服务">部署服务</h3>
+<p>将所有的服务以如下例的Jenkinsfile发布</p>
+<pre><code class="language-json">pipeline {
+  agent {
+    node {
+      label 'maven'
+    }
+
+  }
+
+  environment {
+      DOCKER_CREDENTIAL_ID = 'dockerhub-id'
+      GITEE_CREDENTIAL_ID = 'gitee-id'
+      KUBECONFIG_CREDENTIAL_ID = 'demo-kubeconfig'
+      REGISTRY = 'docker.io'
+      DOCKERHUB_NAMESPACE = 'dxone1'
+      GITEE_ACCOUNT = 'dxone'
+      SONAR_CREDENTIAL_ID = 'sonar-qube'
+      BRANCH_NAME = &quot;master&quot;
+  }
+
+  stages {
+    stage('拉取代码') {
+      steps {
+        git(credentialsId: 'gitee-id', url: 'https://gitee.com/dxone/mall.git', branch: 'master', changelog: true, poll: false)
+        sh 'echo 正在构建: $PROJECT_NAME  版本号: $PROJECT_VERSION 将提交给 $REGISTRY 镜像仓库'
+        sh 'echo 正在完整编译项目'
+        container ('maven') {
+          sh 'mvn clean install -Dmaven.test.skip=true -gs `pwd`/mvn-settings.xml'
+        }
+      }
+    }
+    stage('sonarqube代码质量分析') {
+      steps {
+        container ('maven') {
+          withCredentials([string(credentialsId: &quot;$SONAR_CREDENTIAL_ID&quot;, variable: 'SONAR_TOKEN')]) {
+            withSonarQubeEnv('sonar') {
+             sh 'echo 当前目录为: `pwd`'
+             sh 'mvn sonar:sonar -gs `pwd`/mvn-settings.xml -Dsonar.branch=$BRANCH_NAME -Dsonar.login=$SONAR_TOKEN'
+            }
+          }
+          timeout(time: 1, unit: 'HOURS') {
+            waitForQualityGate abortPipeline: true
+          }
+        }
+      }
+    }
+    stage ('构建和推送快照版本镜像') {
+        steps {
+            container ('maven') {
+                sh 'mvn -Dmaven.test.skip=true -gs `pwd`/mvn-settings.xml clean package'
+                sh 'cd $PROJECT_NAME &amp;&amp; docker build -f Dockerfile -t $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER .'
+                withCredentials([usernamePassword(passwordVariable : 'DOCKER_PASSWORD' ,usernameVariable : 'DOCKER_USERNAME' ,credentialsId : &quot;$DOCKER_CREDENTIAL_ID&quot; ,)]) {
+                    sh 'echo &quot;$DOCKER_PASSWORD&quot; | docker login $REGISTRY -u &quot;$DOCKER_USERNAME&quot; --password-stdin'
+                    sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER'
+                }
+            }
+        }
+    }
+    stage('推送latest版本镜像'){
+       steps{
+            container ('maven') {
+              sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:latest '
+              sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:latest '
+            }
+       }
+    }
+    stage('部署到k8s集群') {
+      steps {
+        input(id: &quot;deploy-to-dev-$PROJECT_NAME&quot;, message: &quot;是否将 $PROJECT_NAME 部署到集群中?&quot;)
+        kubernetesDeploy(configs: &quot;$PROJECT_NAME/deploy/**&quot;, enableConfigSubstitution: true, kubeconfigId: &quot;$KUBECONFIG_CREDENTIAL_ID&quot;)
+      }
+    }
+    stage('在gitee发布版本'){
+      when{
+        expression{
+          return params.PROJECT_VERSION =~ /v.*/
+        }
+      }
+      steps {
+        container ('maven') {
+          input(id: 'release-image-with-tag', message: '是否发布当前版本镜像?')
+            withCredentials([usernamePassword(credentialsId: &quot;$GITEE_CREDENTIAL_ID&quot;, passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
+              sh 'git config --global user.email &quot;dongjiyu111@126.com&quot; '
+              sh 'git config --global user.name &quot;dxone&quot; '
+              sh 'git tag -a $PROJECT_VERSION -m &quot;$TPROJECT_VERSION&quot; '
+              sh 'git push http://$GIT_USERNAME:$GIT_PASSWORD@gitee.com/$GITEE_ACCOUNT/mall.git --tags --ipv4'
+            }
+          sh 'docker tag  $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:$PROJECT_VERSION '
+          sh 'docker push  $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:$PROJECT_VERSION '
+        }
+      }
+    }
+  }
+
+  parameters {
+    string(name:'PROJECT_VERSION',defaultValue: 'v0.0Beta',description:'')
+    string(name:'PROJECT_NAME',defaultValue: 'mall-gateway',description:'')
+  }
+}
+</code></pre>
+<p>部署文件为：</p>
+<pre><code class="language-yaml">kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mall-auth-server
+  namespace: mall
+  labels:
+    app: mall-auth-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mall-auth-server
+  template:
+    metadata:
+      labels:
+        app: mall-auth-server
+    spec:
+      containers:
+        - name: mall-auth-server
+          image: $REGISTRY/$DOCKERHUB_NAMESPACE/$PROJECT_NAME:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 500Mi
+            requests:
+              cpu: 10m
+              memory: 10Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+  
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: mall-auth-server
+  namespace: mall
+  labels:
+    app: mall-auth-server
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 31000
+  selector:
+    app: mall-auth-server
+  type: NodePort
+  sessionAffinity: None
+</code></pre>
+<p><strong>Nginx的部署</strong><br>
+直接将之前一直使用的nginx打包成docker然后部署。注意修改之前con的up stream server为线上环境的server。提交docker hub后如下所示。<br>
+<img src="https://dxone1.github.io//post-images/1639558660436.png" alt="" loading="lazy"><br>
+国内环境可以使用阿里云镜像仓库替代，为了保证稳定性以后的镜像均迁移至aliyun镜像仓库</p>
+<h2 id="前端部署">前端部署</h2>
+<p>使用<code>npm run build</code>构建到dist目录，使用docker发布。<br>
+将dist目录打包为dist.tar.gz，使用如下的Dockerfile构建即可</p>
+<pre><code class="language-dockerfile">FROM nginx
+MAINTAINER dxone1
+ADD dist.tar.gz /usr/share/nginx/html
+EXPOSE 80
+ENTRYPOINT nginx -g &quot;daemon off;&quot;
+</code></pre>
+<p>可以直接通过kubernetes进行镜像更新：<br>
+<img src="https://dxone1.github.io//post-images/1639655823830.png" alt="" loading="lazy"></p>
+<h2 id="告警">告警</h2>
+<ol>
+<li>开启邮箱的POP3/smtp服务，可以使kubesphere发送邮件<br>
+<img src="https://dxone1.github.io//post-images/1639661865102.png" alt="" loading="lazy"><br>
+<img src="https://dxone1.github.io//post-images/1639661869058.png" alt="" loading="lazy"></li>
+<li>添加一个内存的告警策略<br>
+<img src="https://dxone1.github.io//post-images/1639662109601.png" alt="" loading="lazy"><br>
+这样就可以监控告警了，如果触发了告警规则，就会发送邮件。</li>
+</ol>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day22：集群]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day22ji-qun/</id>
@@ -3770,356 +4104,6 @@ public SkuItemVo item(Long skuId) throws ExecutionException, InterruptedExceptio
     return skuItemVo;
 }
 </code></pre>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城服务 day13：检索服务]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-fu-wu-day13jian-suo-fu-wu/">
-        </link>
-        <updated>2021-11-18T08:50:04.000Z</updated>
-        <content type="html"><![CDATA[<h2 id="搭建页面">搭建页面</h2>
-<p>之前的布置已经完成了后台系统上架商品到ES的业务，现在需要检索商品的业务。仍然采用Nginx动静分离的模式</p>
-<ol>
-<li>在nginx中配置所有*.mall.com和mall.com都发送到网关</li>
-<li>我们设定所有search.mall.com为搜索服务，在html/static/search中放置了其静态资源</li>
-<li>设定网关的转发</li>
-</ol>
-<pre><code class="language-yaml">- id: mall_search_route
-    uri: lb://mall-search
-    # 使用Host域名方式进行路由：任意mall.com旗下的全部路由给mall-product
-    predicates:
-    - Host=search.mall.com
-</code></pre>
-<h2 id="进入页面">进入页面</h2>
-<ol>
-<li>三级分类进入</li>
-<li>检索框检索</li>
-<li>选择筛选条件进入<br>
-<strong>封装查询参数：</strong></li>
-</ol>
-<pre><code class="language-java">@Data
-public class SearchParam {
-
-    private String keyword;
-    private Long catalog3Id;
-
-    /**
-     * 排序条件
-     * sort=saleCount_asc/desc
-     * sort=skuPrice_asc/desc
-     * sort=hotScore_asc/desc
-     */
-    private String sort;
-
-    /**
-     * 过滤条件
-     * hasStock=0/1
-     * skuPrice=1_500/_500/500_
-     * brandId
-     * attrs：属性值
-     * attrs=1_其他:安卓&amp;attrs=2_5寸:6寸
-     */
-    private Integer hasStock; // 有货
-    private String skuPrice; // 价格区间
-    private List&lt;Long&gt; brandId;
-    private List&lt;String&gt; attrs;
-
-    private Integer pageNum; //页面号
-
-}
-</code></pre>
-<p><strong>封装搜索返回</strong></p>
-<pre><code class="language-java">@Data
-public class SearchResult {
-    //查询到的所有商品信息
-    private List&lt;SkuEsModel&gt; products;
-    //分页信息
-    private Integer pageNum;
-    private Long total;
-    private Integer totalPages;
-    //当前查询到的结果中所有涉及的品牌
-    private List&lt;BrandVo&gt; brands;
-    //当前查询到的结果中所有涉及的分类
-    private List&lt;CatalogVo&gt; catalogs;
-    //当前查询到的结果中所有涉及的属性
-    private List&lt;AttrVo&gt; attrs;
-
-    @Data
-    public static class BrandVo {
-        private Long brandId;
-        private String brandName;
-        private String brandImg;
-    }
-
-    @Data
-    public static class AttrVo {
-        private Long attrId;
-        private String attrName;
-        private List&lt;String&gt; attrValue;
-    }
-
-    @Data
-    public static class CatalogVo {
-        private Long catalogId;
-        private String catalogName;
-    }
-}
-</code></pre>
-<h2 id="es查询业务">ES查询业务</h2>
-<p>主要有以下三块：</p>
-<ol>
-<li>must模糊匹配titile，过滤（按照属性，品牌，分类，价格区间，库存）</li>
-<li>排序，分页，高亮</li>
-<li>聚合分析</li>
-</ol>
-<h3 id="动态构建dsl语句">动态构建DSL语句</h3>
-<p>逻辑：自动注入一个RestHighLevelClient，client可以执行search等操作。执行search操作要放一个SearchRequest，而SearchRequest由SourceBuilder构建。SourceBuilder在执行query查询时使用QueryBuilder。</p>
-<pre><code class="language-java">/**
-    * 准备检索请求
-    * @return
-    */
-private SearchRequest buildSearchRequest(SearchParam param) {
-    // sourceBuilder构建请求
-    SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
-    /**
-        * must模糊匹配，过滤（按照属性，品牌，分类，价格区间，库存）
-        */
-    //1.构建bool queryBuilder
-    BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
-    //1.1 must: 匹配skuTitle
-    if(!StringUtils.isEmpty(param.getKeyword())) {
-        boolQuery.must(QueryBuilders.matchQuery(&quot;skuTitle&quot;, param.getKeyword()));
-    }
-    //1.2 filter: 三级分类ID
-    if(param.getCatalog3Id() != null) {
-        boolQuery.filter(QueryBuilders.termQuery(&quot;catalogId&quot;, param.getCatalog3Id()));
-    }
-    //1.2 filter: brandId
-    if(param.getBrandId() != null &amp;&amp; param.getBrandId().size() &gt; 0) {
-        boolQuery.filter(QueryBuilders.termsQuery(&quot;brandId&quot;, param.getBrandId()));
-    }
-    //1.2 filter: attrs nested查询
-    if(param.getAttrs() != null &amp;&amp; param.getAttrs().size() &gt; 0) {
-        //形如 attr=1_5寸:6寸&amp;attr=2_16GB:8GB
-        for (String attr : param.getAttrs()) {
-            // 每个属性开始一个bool查询
-            BoolQueryBuilder nestedBoolQuery = QueryBuilders.boolQuery();
-            String[] s = attr.split(&quot;_&quot;);
-            String attrId = s[0];
-            String[] attrValues = s[1].split(&quot;:&quot;);
-            nestedBoolQuery.must(QueryBuilders.termsQuery(&quot;attrs.attrId&quot;, attrId));
-            nestedBoolQuery.must(QueryBuilders.termsQuery(&quot;attrs.attrValue&quot;, attrValues));
-            // 构建nested查询
-            NestedQueryBuilder nestedQuery = QueryBuilders.nestedQuery(&quot;attrs&quot;, nestedBoolQuery, ScoreMode.None);
-            boolQuery.filter(nestedQuery);
-        }
-    }
-    //1.2 filter: hasStock
-    boolQuery.filter(QueryBuilders.termQuery(&quot;hasStock&quot;, param.getHasStock() == 1));
-    //1.2 filter: 价格区间
-    if(!StringUtils.isEmpty(param.getSkuPrice())) {
-        RangeQueryBuilder rangeQuery = QueryBuilders.rangeQuery(&quot;skuPrice&quot;);
-        if (param.getSkuPrice().startsWith(&quot;_&quot;)) {
-            rangeQuery.lte(param.getSkuPrice().substring(1));
-        } else if (param.getSkuPrice().endsWith(&quot;_&quot;)) {
-            rangeQuery.gte(param.getSkuPrice().substring(0, param.getSkuPrice().length() - 1));
-        } else {
-            String[] s = param.getSkuPrice().split(&quot;_&quot;);
-            rangeQuery.gte(s[0]).lt(s[1]);
-        }
-        boolQuery.filter(rangeQuery);
-    }
-    //查询的语句构建完成
-    sourceBuilder.query(boolQuery);
-
-    /**
-        * 排序，分页，高亮
-        * sort=saleCount_asc/desc
-        * sort=skuPrice_asc/desc
-        * sort=hotScore_asc/desc
-        */
-    //2.1 排序
-    if(!StringUtils.isEmpty(param.getSort())) {
-        String sort = param.getSort();
-        String[] s = sort.split(&quot;_&quot;);
-        SortOrder order = &quot;asc&quot;.equalsIgnoreCase(s[1])? SortOrder.ASC: SortOrder.DESC;
-        sourceBuilder.sort(s[0], order);
-    }
-    //2.2 分页
-    sourceBuilder.from((param.getPageNum() - 1) * EsConstant.PRODUCT_PAGESIZE);
-    sourceBuilder.size(EsConstant.PRODUCT_PAGESIZE);
-    //2.3 高亮
-    if(!StringUtils.isEmpty(param.getKeyword())) {
-        HighlightBuilder highlightBuilder = new HighlightBuilder();
-        highlightBuilder.field(&quot;skuTitle&quot;);
-        highlightBuilder.preTags(&quot;&lt;b style='color:red'&gt;&quot;);
-        highlightBuilder.postTags(&quot;&lt;/b&gt;&quot;);
-        sourceBuilder.highlighter(highlightBuilder);
-    }
-
-    /**
-        * 聚合分析
-        */
-    //1.聚合品牌
-    TermsAggregationBuilder brand_agg = AggregationBuilders.terms(&quot;brand_agg&quot;);
-    brand_agg.field(&quot;brandId&quot;).size(50);
-    // 品牌子聚合（brandName, brandImg）
-    brand_agg.subAggregation(AggregationBuilders.terms(&quot;brand_name_agg&quot;).field(&quot;brandName&quot;).size(1));
-    brand_agg.subAggregation(AggregationBuilders.terms(&quot;brand_img_agg&quot;).field(&quot;brandImg&quot;).size(1));
-    sourceBuilder.aggregation(brand_agg);
-
-    //2.聚合分类信息
-    TermsAggregationBuilder catalog_agg = AggregationBuilders.terms(&quot;catalog_agg&quot;);
-    catalog_agg.field(&quot;catalogId&quot;).size(20);
-    // 子聚合
-    catalog_agg.subAggregation(AggregationBuilders.terms(&quot;catalog_name_agg&quot;).field(&quot;catalogName&quot;).size(1));
-    sourceBuilder.aggregation(catalog_agg);
-
-    //3. 属性聚合
-    /**
-        * attr_agg
-        *  |_ attr_id_agg  所有属性的id
-        *      |_attr_name_agg 属性名
-        *      |_attr_value_agg 属性的所有可能取值
-        */
-    NestedAggregationBuilder attr_agg = AggregationBuilders.nested(&quot;attr_agg&quot;, &quot;attrs&quot;);
-    TermsAggregationBuilder attr_id_agg = AggregationBuilders.terms(&quot;attr_id_agg&quot;).field(&quot;attrs.attrId&quot;);
-
-    attr_id_agg.subAggregation(AggregationBuilders.terms(&quot;attr_name_agg&quot;).field(&quot;attrs.attrName&quot;).size(1));
-    attr_id_agg.subAggregation(AggregationBuilders.terms(&quot;attr_value_agg&quot;).field(&quot;attrs.attrValue&quot;).size(50));
-
-    attr_agg.subAggregation(attr_id_agg);
-    sourceBuilder.aggregation(attr_agg);
-
-    String s = sourceBuilder.toString();
-    System.out.println(&quot;DSL语句：&quot; + s);
-    SearchRequest searchRequest = new SearchRequest(new String[]{EsConstant.PRODUCT_INDEX}, sourceBuilder);
-    return searchRequest;
-}
-</code></pre>
-<h3 id="返回结果的封装">返回结果的封装</h3>
-<p>最终封装成我们自定义的VO：SearchResult，封装属性例子如下：<br>
-<img src="https://dxone1.github.io//post-images/1637314023037.png" alt="" loading="lazy"></p>
-<pre><code class="language-java">/**
-    * 构建结果数据
-    * @param response
-    * @return
-    */
-private SearchResult buildSearchResult(SearchResponse response, SearchParam param) {
-
-    SearchResult result = new SearchResult();
-    SearchHits hits = response.getHits();
-
-    /******来自查询信息*******/
-    ////1. 封装查询的所有商品
-    List&lt;SkuEsModel&gt; products = new ArrayList&lt;&gt;();
-    if(hits.getHits() != null &amp;&amp; hits.getHits().length &gt; 0) {
-        for (SearchHit hit : hits.getHits()) {
-            String sourceAsString = hit.getSourceAsString();
-            SkuEsModel esModel = JSON.parseObject(sourceAsString, SkuEsModel.class);
-            if(!StringUtils.isEmpty(param.getKeyword())) {
-                HighlightField skuTitle = hit.getHighlightFields().get(&quot;skuTitle&quot;);
-                String string = skuTitle.getFragments()[0].string();
-                esModel.setSkuTitle(string);
-            }
-            products.add(esModel);
-        }
-    }
-    result.setProducts(products);
-
-    /******来自聚合信息*******/
-    Aggregations aggregations = response.getAggregations();
-    //2. 封装所有商品涉及的所有属性
-    ParsedNested attr_agg = aggregations.get(&quot;attr_agg&quot;);
-    // 属性id聚合
-    ParsedLongTerms attr_id_agg = attr_agg.getAggregations().get(&quot;attr_id_agg&quot;);
-    List&lt;SearchResult.AttrVo&gt; attrVos = new ArrayList&lt;&gt;();
-    for (Terms.Bucket bucket : attr_id_agg.getBuckets()) {
-        SearchResult.AttrVo attrVo = new SearchResult.AttrVo();
-        // 属性id
-        long attrId = bucket.getKeyAsNumber().longValue();
-        // 属性名
-        ParsedStringTerms attr_name_agg = bucket.getAggregations().get(&quot;attr_name_agg&quot;);
-        String attrName = attr_name_agg.getBuckets().get(0).getKeyAsString();
-        // 属性所有值
-        ParsedStringTerms attr_value_agg = bucket.getAggregations().get(&quot;attr_value_agg&quot;);
-        List&lt;String&gt; attrValues = attr_value_agg.getBuckets().stream().map(item -&gt; {
-            String keyAsString = item.getKeyAsString();
-            return keyAsString;
-        }).collect(Collectors.toList());
-
-        attrVo.setAttrId(attrId);
-        attrVo.setAttrName(attrName);
-        attrVo.setAttrValue(attrValues);
-
-        attrVos.add(attrVo);
-    }
-    result.setAttrs(attrVos);
-
-    //3. 封装所有商品涉及的所有品牌信息
-    ParsedLongTerms brand_agg = aggregations.get(&quot;brand_agg&quot;);
-    List&lt;SearchResult.BrandVo&gt; brandVos = new ArrayList&lt;&gt;();
-    for (Terms.Bucket bucket : brand_agg.getBuckets()) {
-        SearchResult.BrandVo brandVo = new SearchResult.BrandVo();
-        // 品牌id
-        long brandId = bucket.getKeyAsNumber().longValue();
-        // 品牌名字
-        ParsedStringTerms brand_name_agg = bucket.getAggregations().get(&quot;brand_name_agg&quot;);
-        String brandName = brand_name_agg.getBuckets().get(0).getKeyAsString();
-        // 品牌img
-        ParsedStringTerms brand_img_agg = bucket.getAggregations().get(&quot;brand_img_agg&quot;);
-        String brandImg = brand_img_agg.getBuckets().get(0).getKeyAsString();
-
-        brandVo.setBrandId(brandId);
-        brandVo.setBrandName(brandName);
-        brandVo.setBrandImg(brandImg);
-
-        brandVos.add(brandVo);
-    }
-    result.setBrands(brandVos);
-
-    //4. 封装所有商品涉及的所有分类
-    ParsedLongTerms catalog_agg = aggregations.get(&quot;catalog_agg&quot;);
-    List&lt;SearchResult.CatalogVo&gt; catalogVos = new ArrayList&lt;&gt;();
-    List&lt;? extends Terms.Bucket&gt; buckets = catalog_agg.getBuckets();
-    for (Terms.Bucket bucket : buckets) {
-        SearchResult.CatalogVo catalogVo = new SearchResult.CatalogVo();
-        // 分类id
-        String id = bucket.getKeyAsString();
-        catalogVo.setCatalogId(Long.parseLong(id));
-        // 分类名
-        ParsedStringTerms catalog_name_agg = bucket.getAggregations().get(&quot;catalog_name_agg&quot;);
-        String catalog_name = catalog_name_agg.getBuckets().get(0).getKeyAsString();
-        catalogVo.setCatalogName(catalog_name);
-        catalogVos.add(catalogVo);
-    }
-    result.setCatalogs(catalogVos);
-    /******来自查询结果*******/
-    //5. 分页信息
-    // 页数
-    result.setPageNum(param.getPageNum());
-    // 总记录数
-    long total = hits.getTotalHits().value;
-    result.setTotal(total);
-    //总页码
-    int totalPages = (int)(total + EsConstant.PRODUCT_PAGESIZE - 1) / EsConstant.PRODUCT_PAGESIZE;
-    result.setTotalPages(totalPages);
-    return result;
-}
-</code></pre>
-<p>调整动态页面的获取，可以得到这样的初步效果<br>
-<img src="https://dxone1.github.io//post-images/1637324209707.png" alt="" loading="lazy"><br>
-细化后可以通过点击拼串查询，查询逻辑在上方<br>
-<img src="https://dxone1.github.io//post-images/1637325978007.png" alt="" loading="lazy"><br>
-调整页面逻辑<br>
-<img src="https://dxone1.github.io//post-images/1637328422616.png" alt="" loading="lazy"><br>
-排序请求，通过在前端对应位置拼接排序的要求实现<br>
-<img src="https://dxone1.github.io//post-images/1637377710787.png" alt="" loading="lazy"><br>
-再实现价格区间和是否有货查询的前端逻辑<br>
-<img src="https://dxone1.github.io//post-images/1637381005577.png" alt="" loading="lazy"><br>
-面包屑导航<br>
-<img src="https://dxone1.github.io//post-images/1637409332795.png" alt="" loading="lazy"></p>
 ]]></content>
     </entry>
 </feed>
