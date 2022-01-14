@@ -1,0 +1,494 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lwjgl学习1：渲染 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1642163798088">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="Lwjgl学习1：渲染 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="将三维图形映射到二维屏幕的过程被称为图形管线。在现代GL编程中使用的都是可编程管线，该模型中组成图形管线的不同步骤可以通过使用一组被称为Shader（着色器）的特定程序进行控制。这是一个典型的OpenGL可编程管线
+
+首先需要将一个顶点着色..." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1642163798088" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+      
+        <a href="/mall" class="menu">
+          商城项目
+        </a>
+      
+    
+      
+        <a href="/lwjgl" class="menu">
+          LwJGL学习
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              Lwjgl学习1：渲染
+            </h2>
+            <div class="post-info">
+              <span>
+                2022-01-14
+              </span>
+              <span>
+                11 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>将三维图形映射到二维屏幕的过程被称为图形管线。在现代GL编程中使用的都是可编程管线，该模型中组成图形管线的不同步骤可以通过使用一组被称为Shader（着色器）的特定程序进行控制。这是一个典型的OpenGL可编程管线<br>
+<img src="https://dxone1.github.io//post-images/1642152303723.png" alt="" loading="lazy"><br>
+首先需要将一个顶点着色器进行生成点的操作。</p>
+<h2 id="第一个着色器程序顶点着色器">第一个着色器程序：顶点着色器</h2>
+<pre><code class="language-c">#version 460
+
+layout (location=0) in vec3 position;
+
+void main() {
+    gl_Position = vec4(position, 1.0);
+}
+</code></pre>
+<p>我们使用的显卡为RTX2060，OpenGL版本4.6。首先，需要把这些块变成对我们有意义的数据。现在规定从位置0开始，我们期望接收由三个属性(X, Y, Z)组成的向量。着色器有个main代码块，就像任何C语言程序一样，上述示例是非常简单的。它只是将接收到的坐标不经任何变换地返回到gl_Position。<code>gl_Position</code>仅接收vec4类型的数据，因为它是齐次坐标（Homogeneous Coordinates）。也就是说，它希望接收到形似(X, Y, Z, W)的东西，其中W代表一个额外的维度。最后一个维度允许我们将仿射和线性变换组合起来，方便运算整体性。</p>
+<h2 id="片元着色器">片元着色器</h2>
+<pre><code class="language-c">#version 460
+
+out vec4 fragColor;
+
+void main()
+{
+    fragColor = vec4(0.0, 0.5, 0.5, 1.0);
+}
+</code></pre>
+<p>偏远着色器将使用片元，生成写入到帧缓冲区的像素的最终颜色。帧缓冲区就是管线的最终输出。本例的代码目的是为每个片元设置固定的颜色，输出值被定义在第二行的<code>fragColor</code>中，其类型为<code>vec4</code></p>
+<h2 id="步骤">步骤</h2>
+<p>以下是我们要做的一系列步骤： 1. 创建OpenGL程序。 2. 载入顶点和片元着色器文件。 3. 为每个着色器创建一个新的着色器程序并指定它的类型（顶点或片元）。 4. 编译着色器。 5. 将着色器绑定到OpenGL程序上。 6. 连接程序。</p>
+<ul>
+<li>我们首先新建一个类<code>ShaderProgram</code>，<code>ShaderProgram</code>类的构造函数在OpenGL中创建一个新的程序，并提供添加顶点和片元着色器的方法。这些着色器被编译并绑定到OpenGL程序中。当所有的着色器都被绑定时，应该调用<code>link</code>方法，来连接所有代码并验证所有操作都已正确地完成。</li>
+<li>一旦着色器程序被连接，编译的顶点和片元着色器可以被释放（通过调用<code>glDetachShader</code>方法）。</li>
+<li>验证是通过调用<code>glValidateProgram</code>方法完成的。此方法主要用于调试，当游戏到达生产阶段时，应将其删除。此方法将验证在当前OpenGL状态下着色器是否正确。这意味着，即使着色器是正确的，在某些情况下也可能验证失败，这是因为当前状态不够完整（一些数据可能尚未加载），无法运行着色器。因此，我们可以将错误信息输出到标准错误输出中。</li>
+<li>ShaderProgram类还提供了在渲染时激活该程序（绑定）和停止使用它（解绑）的方法。最后，它提供了一个<code>cleanup</code>方法，用于在它不再被需要时，释放所有资源。</li>
+</ul>
+<h3 id="分解1-shader程序">分解1: Shader程序</h3>
+<p>我们依然在上一个项目的基础上进行，首先构建一个GL程序类，它管理了GL程序的创建，着色器的添加，链接和最终销毁</p>
+<pre><code class="language-java">package com.dong.engine.graph;
+
+import static org.lwjgl.opengl.GL20.*;
+
+public class ShaderProgram {
+    // 程序ID
+    private final int programId;
+    // 顶点着色器ID
+    private int vertexShaderId;
+    // 片元着色器ID
+    private int fragmentShaderId;
+
+    public ShaderProgram() throws Exception {
+        this.programId = glCreateProgram();
+        if(programId == 0) {
+            // 方法返回0说明内部产生了错误
+            throw new Exception(&quot;Could not create Shader&quot;);
+        }
+    }
+
+    /**
+     * 生成顶点着色器，传入顶点着色器的代码
+     * @param shaderCode 顶点着色器代码
+     */
+    public void createVertexShader(String shaderCode) throws Exception {
+        vertexShaderId = createShader(shaderCode, GL_VERTEX_SHADER);
+    }
+
+    /**
+     * 生成片元着色器
+     * @param shaderCode 片元着色器代码
+     */
+    public void createFragmentShader(String shaderCode) throws Exception {
+        fragmentShaderId = createShader(shaderCode, GL_FRAGMENT_SHADER);
+    }
+
+    /**
+     * 创建Shader的通用方法
+     * @param shaderCode shader文件代码
+     * @param shaderType shader的类型
+     * @return 着色器ID
+     */
+    protected int createShader(String shaderCode, int shaderType) throws Exception {
+        int shaderId = glCreateShader(shaderType);
+        if(shaderId == 0) {
+            // 创建失败
+            throw new Exception(&quot;Error creating shader. Type: &quot; + shaderType);
+        }
+
+        glShaderSource(shaderId, shaderCode); // 指定shader的代码
+        glCompileShader(shaderId); //编译shader
+
+        if (glGetShaderi(shaderId, GL_COMPILE_STATUS) == GL_FALSE) {
+            // glGetShaderi()方法调用返回对应shader实体的某个状态信息
+            // 这里查看是否编译成功
+            throw new Exception(&quot;Error compiling Shader code: &quot; + glGetShaderInfoLog(shaderId, 1024));
+        }
+
+        // attach阶段，在link之前将shader附加到program上表明该shader会被添加到link的操作中
+        glAttachShader(programId, shaderId);
+
+        return shaderId;
+    }
+
+    /**
+     * shader连接
+     */
+    public void link() throws Exception {
+        glLinkProgram(programId);
+        if(glGetProgrami(programId, GL_LINK_STATUS) == GL_FALSE) {
+            // 链接出错
+            throw new Exception(&quot;Error linking Shader code: &quot; + glGetProgramInfoLog(programId, 1024));
+        }
+        // 链接成功，释放着色器
+        if(vertexShaderId != 0) {
+            glDetachShader(programId, vertexShaderId);
+        }
+        if(fragmentShaderId != 0) {
+            glDetachShader(programId, fragmentShaderId);
+        }
+        // 校验程序
+        glValidateProgram(programId);
+        if(glGetProgrami(programId, GL_VALIDATE_STATUS) == GL_FALSE) {
+            // 如果校验不通过
+            throw new Exception(&quot;Warning validating Shader code: &quot; + glGetProgramInfoLog(programId, 1024));
+        }
+    }
+
+    public void bind() {
+        glUseProgram(programId);
+    }
+
+    public void unbind() {
+        glUseProgram(0);
+    }
+
+    /**
+     * 清理，解绑并销毁程序
+     */
+    public void cleanup() {
+        unbind();
+        if(programId != 0) {
+            glDeleteProgram(programId);
+        }
+    }
+}
+</code></pre>
+<h3 id="分解2-加载器">分解2: 加载器</h3>
+<p>我们写一个加载Shader代码的静态方法，将其放在<code>Utils</code>工具类中。这个方法使用<code>Scanner</code>将文件内容全部读取，注意<code>useDelimiter(&quot;\\A&quot;).next()</code>使用正则表达式定义分隔符为文本全部内容，这样result就会将全部的文本内容读取</p>
+<pre><code class="language-java">package com.dong.engine;
+
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
+
+public class Utils {
+
+    /**
+     * 一个静态的文件装载方法，作用是将一个文件中的全部内容以UTF-8格式读成字符串
+     * @param fileName 文件名
+     * @return 文件内容字符串
+     * @throws Exception 可能有读文件的IO异常
+     */
+    public static String loadResource(String fileName) throws Exception {
+        String result;
+        try(InputStream in = Utils.class.getResourceAsStream(fileName);
+            Scanner scanner = new Scanner(in, StandardCharsets.UTF_8.name())) {
+            result = scanner.useDelimiter(&quot;\\A&quot;).next();
+        }
+        return result;
+    }
+}
+</code></pre>
+<h3 id="分解3-渲染器">分解3: 渲染器</h3>
+<p>将三角形渲染的主要工作放在本部分，在进入具体的代码讲解前需要厘清两个概念，顶点缓冲对象（VBO）和顶点数组对象（VAO）。</p>
+<ul>
+<li>VBO：顶点缓冲对象VBO是在显卡存储空间中开辟出的一块内存缓存区，用于存储顶点的各类属性信息，如顶点坐标，顶点法向量，顶点颜色数据等。在渲染时，可以直接从VBO中取出顶点的各类属性数据，由于VBO在显存而不是在内存中，不需要从CPU传输数据，处理效率更高。</li>
+<li>VAO：VBO保存了一个模型的顶点属性信息，每次绘制模型之前需要绑定顶点的所有信息，当数据量很大时，重复这样的动作变得非常麻烦。VAO可以把这些所有的配置都存储在一个对象中，每次绘制模型时，只需要绑定这个VAO对象就可以了VAO是一个保存了所有顶点数据属性的状态结合，<strong>它存储了顶点数据的格式以及顶点数据所需的VBO对象的引用。VAO本身并没有存储顶点的相关属性数据，这些信息是存储在VBO中的，VAO相当于是对很多个VBO的引用</strong>，把一些VBO组合在一起作为一个对象统一管理。</li>
+</ul>
+<p>下面是代码的解释，<code>init()</code>方法初始化整个Renderer，步骤如下：</p>
+<ol>
+<li>装载并创建顶点着色器与片元着色器，然后链接。</li>
+<li>创建vao对象，将其绑定</li>
+<li>创建vbo对象，将之前指定的顶点位置数据通过Buffer绑定到vbo上</li>
+<li>启用0号顶点数组，在vao和vbo均绑定的情况下为vao的属性列表定义数据结构。结构为从0开始每组3个FLOAT。</li>
+<li>解绑vbo和vao</li>
+</ol>
+<pre><code class="language-java">/**
+    * 初始化方法，创建shaderProgram
+    * 之后读取code创建顶点着色器和片元着色器
+    * 最后完成链接
+    * @throws Exception
+    */
+public void init() throws Exception {
+    this.shaderProgram = new ShaderProgram();
+    shaderProgram.createVertexShader(loadResource(&quot;/vertex.vs&quot;));
+    shaderProgram.createFragmentShader(loadResource(&quot;/fragment.fs&quot;));
+    shaderProgram.link();
+    // 需要渲染的一个三角形
+    float[] vertices = new float[]{
+            0.0f, 0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+            0.5f, -0.5f, 0.0f
+    };
+    FloatBuffer verticesBuffer = null;
+
+    try {
+        // 我们使用OpenGL接口必须将浮点数组转为可以被库管理的buffer
+        verticesBuffer = MemoryUtil.memAllocFloat(vertices.length);
+        verticesBuffer.put(vertices).flip(); // 装在数组并将缓冲区位置重置，从0开始读(nio基础)
+
+        // 创建vao,即顶点数组对象并绑定
+        vaoId = glGenVertexArrays();
+        glBindVertexArray(vaoId);
+
+        // 创建vbo即顶点缓冲对象，即一个显存中存储顶点的内存缓冲区
+        // 然后绑定数据
+        vboId = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, vboId);
+        glBufferData(GL_ARRAY_BUFFER, verticesBuffer, GL_STATIC_DRAW);
+
+        // 启用0号顶点数组
+        glEnableVertexAttribArray(0);
+
+        // 定义数据结构并将其存储在VAO的属性列表中
+        // index: 指定着色器期望此数据的位置。
+        // size: 指定每个顶点属性的数据数（从1到4）。现在，我们使用三维坐标，所以它应该是3。
+        // type: 指定数组中每个数据的类型，现在是浮点数。
+        // normalized: 指定值是否应归一化。
+        // stride: 指定连续顶点数据之间的字节偏移量（稍后我们再解释）。
+        // offset: 指定缓冲区中第一个数据的偏移量。
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+
+        // 解绑VBO
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        // 解绑VAO
+        glBindVertexArray(0);
+    } finally {
+        if(verticesBuffer != null) {
+            MemoryUtil.memFree(verticesBuffer);
+        }
+    }
+}
+</code></pre>
+<p><code>render()</code>方法是渲染时实际使用的方法，这一步接收窗口对象并做好窗口尺寸更新。在渲染方面：</p>
+<ol>
+<li>使用纯色清除缓冲区</li>
+<li>绑定shader程序</li>
+<li>绑定vao</li>
+<li>使用绑定的vao绘制顶点，注意vao记录了结构信息，而显存中的vbo实际存储着数据</li>
+<li>解绑vao和shader程序</li>
+</ol>
+<pre><code class="language-java">/**
+    * 渲染功能
+    * @param window 传递来的窗口
+    */
+public void render(Window window) {
+    // 清除
+    clear();
+    if(window.isResized()) {
+        // 如果窗口更新了尺寸，则更新GL的视口
+        glViewport(0, 0, window.getWidth(), window.getHeight());
+        window.setResized(false);
+    }
+    // 绑定shader程序
+    shaderProgram.bind();
+
+    // 绑定VAO
+    glBindVertexArray(vaoId);
+
+    // 绘制顶点
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // 解绑VAO和还原
+    glBindVertexArray(0);
+
+    shaderProgram.unbind();
+}
+</code></pre>
+<p><code>cleanup()</code>执行最终的清除动作，要释放shader程序并禁用0号顶点数组，删除vbo和vao</p>
+<pre><code class="language-java">/**
+    * 清除程序
+    */
+public void cleanup() {
+    if(shaderProgram != null) {
+        shaderProgram.cleanup();
+    }
+
+    // 禁用0号顶点数组
+    glDisableVertexAttribArray(0);
+
+    // 删除VBO
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(vboId);
+
+    // 删除VAO
+    glBindVertexArray(0);
+    glDeleteVertexArrays(vaoId);
+}
+</code></pre>
+<h3 id="分解4-其他改变">分解4: 其他改变</h3>
+<p>改变了游戏的一些调用，首先将游戏逻辑中的<code>render()</code>方法主要逻辑放在<code>Renderer</code>中实现，这样该部分只要设置好背景颜色然后渲染即可。<br>
+此外在<code>IGameLogic</code>中添加了<code>cleanup()</code>方法，目前实现上直接调用<code>Render</code>的同名方法即可。</p>
+<p>效果：<br>
+<img src="https://dxone1.github.io//post-images/1642163513617.png" alt="" loading="lazy"></p>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E7%AC%AC%E4%B8%80%E4%B8%AA%E7%9D%80%E8%89%B2%E5%99%A8%E7%A8%8B%E5%BA%8F%E9%A1%B6%E7%82%B9%E7%9D%80%E8%89%B2%E5%99%A8">第一个着色器程序：顶点着色器</a></li>
+<li><a href="#%E7%89%87%E5%85%83%E7%9D%80%E8%89%B2%E5%99%A8">片元着色器</a></li>
+<li><a href="#%E6%AD%A5%E9%AA%A4">步骤</a>
+<ul>
+<li><a href="#%E5%88%86%E8%A7%A31-shader%E7%A8%8B%E5%BA%8F">分解1: Shader程序</a></li>
+<li><a href="#%E5%88%86%E8%A7%A32-%E5%8A%A0%E8%BD%BD%E5%99%A8">分解2: 加载器</a></li>
+<li><a href="#%E5%88%86%E8%A7%A33-%E6%B8%B2%E6%9F%93%E5%99%A8">分解3: 渲染器</a></li>
+<li><a href="#%E5%88%86%E8%A7%A34-%E5%85%B6%E4%BB%96%E6%94%B9%E5%8F%98">分解4: 其他改变</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/lwjgl-xue-xi-0hello-world/">
+              <h3 class="post-title">
+                Lwjgl学习0：hello world
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>

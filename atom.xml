@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2022-01-14T08:58:21.498Z</updated>
+    <updated>2022-01-14T12:36:49.062Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
@@ -10,6 +10,314 @@
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
     <rights>All rights reserved 2022, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[Lwjgl学习1：渲染]]></title>
+        <id>https://dxone1.github.io/post/lwjgl-xue-xi-1xuan-ran/</id>
+        <link href="https://dxone1.github.io/post/lwjgl-xue-xi-1xuan-ran/">
+        </link>
+        <updated>2022-01-14T09:21:00.000Z</updated>
+        <content type="html"><![CDATA[<p>将三维图形映射到二维屏幕的过程被称为图形管线。在现代GL编程中使用的都是可编程管线，该模型中组成图形管线的不同步骤可以通过使用一组被称为Shader（着色器）的特定程序进行控制。这是一个典型的OpenGL可编程管线<br>
+<img src="https://dxone1.github.io//post-images/1642152303723.png" alt="" loading="lazy"><br>
+首先需要将一个顶点着色器进行生成点的操作。</p>
+<h2 id="第一个着色器程序顶点着色器">第一个着色器程序：顶点着色器</h2>
+<pre><code class="language-c">#version 460
+
+layout (location=0) in vec3 position;
+
+void main() {
+    gl_Position = vec4(position, 1.0);
+}
+</code></pre>
+<p>我们使用的显卡为RTX2060，OpenGL版本4.6。首先，需要把这些块变成对我们有意义的数据。现在规定从位置0开始，我们期望接收由三个属性(X, Y, Z)组成的向量。着色器有个main代码块，就像任何C语言程序一样，上述示例是非常简单的。它只是将接收到的坐标不经任何变换地返回到gl_Position。<code>gl_Position</code>仅接收vec4类型的数据，因为它是齐次坐标（Homogeneous Coordinates）。也就是说，它希望接收到形似(X, Y, Z, W)的东西，其中W代表一个额外的维度。最后一个维度允许我们将仿射和线性变换组合起来，方便运算整体性。</p>
+<h2 id="片元着色器">片元着色器</h2>
+<pre><code class="language-c">#version 460
+
+out vec4 fragColor;
+
+void main()
+{
+    fragColor = vec4(0.0, 0.5, 0.5, 1.0);
+}
+</code></pre>
+<p>偏远着色器将使用片元，生成写入到帧缓冲区的像素的最终颜色。帧缓冲区就是管线的最终输出。本例的代码目的是为每个片元设置固定的颜色，输出值被定义在第二行的<code>fragColor</code>中，其类型为<code>vec4</code></p>
+<h2 id="步骤">步骤</h2>
+<p>以下是我们要做的一系列步骤： 1. 创建OpenGL程序。 2. 载入顶点和片元着色器文件。 3. 为每个着色器创建一个新的着色器程序并指定它的类型（顶点或片元）。 4. 编译着色器。 5. 将着色器绑定到OpenGL程序上。 6. 连接程序。</p>
+<ul>
+<li>我们首先新建一个类<code>ShaderProgram</code>，<code>ShaderProgram</code>类的构造函数在OpenGL中创建一个新的程序，并提供添加顶点和片元着色器的方法。这些着色器被编译并绑定到OpenGL程序中。当所有的着色器都被绑定时，应该调用<code>link</code>方法，来连接所有代码并验证所有操作都已正确地完成。</li>
+<li>一旦着色器程序被连接，编译的顶点和片元着色器可以被释放（通过调用<code>glDetachShader</code>方法）。</li>
+<li>验证是通过调用<code>glValidateProgram</code>方法完成的。此方法主要用于调试，当游戏到达生产阶段时，应将其删除。此方法将验证在当前OpenGL状态下着色器是否正确。这意味着，即使着色器是正确的，在某些情况下也可能验证失败，这是因为当前状态不够完整（一些数据可能尚未加载），无法运行着色器。因此，我们可以将错误信息输出到标准错误输出中。</li>
+<li>ShaderProgram类还提供了在渲染时激活该程序（绑定）和停止使用它（解绑）的方法。最后，它提供了一个<code>cleanup</code>方法，用于在它不再被需要时，释放所有资源。</li>
+</ul>
+<h3 id="分解1-shader程序">分解1: Shader程序</h3>
+<p>我们依然在上一个项目的基础上进行，首先构建一个GL程序类，它管理了GL程序的创建，着色器的添加，链接和最终销毁</p>
+<pre><code class="language-java">package com.dong.engine.graph;
+
+import static org.lwjgl.opengl.GL20.*;
+
+public class ShaderProgram {
+    // 程序ID
+    private final int programId;
+    // 顶点着色器ID
+    private int vertexShaderId;
+    // 片元着色器ID
+    private int fragmentShaderId;
+
+    public ShaderProgram() throws Exception {
+        this.programId = glCreateProgram();
+        if(programId == 0) {
+            // 方法返回0说明内部产生了错误
+            throw new Exception(&quot;Could not create Shader&quot;);
+        }
+    }
+
+    /**
+     * 生成顶点着色器，传入顶点着色器的代码
+     * @param shaderCode 顶点着色器代码
+     */
+    public void createVertexShader(String shaderCode) throws Exception {
+        vertexShaderId = createShader(shaderCode, GL_VERTEX_SHADER);
+    }
+
+    /**
+     * 生成片元着色器
+     * @param shaderCode 片元着色器代码
+     */
+    public void createFragmentShader(String shaderCode) throws Exception {
+        fragmentShaderId = createShader(shaderCode, GL_FRAGMENT_SHADER);
+    }
+
+    /**
+     * 创建Shader的通用方法
+     * @param shaderCode shader文件代码
+     * @param shaderType shader的类型
+     * @return 着色器ID
+     */
+    protected int createShader(String shaderCode, int shaderType) throws Exception {
+        int shaderId = glCreateShader(shaderType);
+        if(shaderId == 0) {
+            // 创建失败
+            throw new Exception(&quot;Error creating shader. Type: &quot; + shaderType);
+        }
+
+        glShaderSource(shaderId, shaderCode); // 指定shader的代码
+        glCompileShader(shaderId); //编译shader
+
+        if (glGetShaderi(shaderId, GL_COMPILE_STATUS) == GL_FALSE) {
+            // glGetShaderi()方法调用返回对应shader实体的某个状态信息
+            // 这里查看是否编译成功
+            throw new Exception(&quot;Error compiling Shader code: &quot; + glGetShaderInfoLog(shaderId, 1024));
+        }
+
+        // attach阶段，在link之前将shader附加到program上表明该shader会被添加到link的操作中
+        glAttachShader(programId, shaderId);
+
+        return shaderId;
+    }
+
+    /**
+     * shader连接
+     */
+    public void link() throws Exception {
+        glLinkProgram(programId);
+        if(glGetProgrami(programId, GL_LINK_STATUS) == GL_FALSE) {
+            // 链接出错
+            throw new Exception(&quot;Error linking Shader code: &quot; + glGetProgramInfoLog(programId, 1024));
+        }
+        // 链接成功，释放着色器
+        if(vertexShaderId != 0) {
+            glDetachShader(programId, vertexShaderId);
+        }
+        if(fragmentShaderId != 0) {
+            glDetachShader(programId, fragmentShaderId);
+        }
+        // 校验程序
+        glValidateProgram(programId);
+        if(glGetProgrami(programId, GL_VALIDATE_STATUS) == GL_FALSE) {
+            // 如果校验不通过
+            throw new Exception(&quot;Warning validating Shader code: &quot; + glGetProgramInfoLog(programId, 1024));
+        }
+    }
+
+    public void bind() {
+        glUseProgram(programId);
+    }
+
+    public void unbind() {
+        glUseProgram(0);
+    }
+
+    /**
+     * 清理，解绑并销毁程序
+     */
+    public void cleanup() {
+        unbind();
+        if(programId != 0) {
+            glDeleteProgram(programId);
+        }
+    }
+}
+</code></pre>
+<h3 id="分解2-加载器">分解2: 加载器</h3>
+<p>我们写一个加载Shader代码的静态方法，将其放在<code>Utils</code>工具类中。这个方法使用<code>Scanner</code>将文件内容全部读取，注意<code>useDelimiter(&quot;\\A&quot;).next()</code>使用正则表达式定义分隔符为文本全部内容，这样result就会将全部的文本内容读取</p>
+<pre><code class="language-java">package com.dong.engine;
+
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
+
+public class Utils {
+
+    /**
+     * 一个静态的文件装载方法，作用是将一个文件中的全部内容以UTF-8格式读成字符串
+     * @param fileName 文件名
+     * @return 文件内容字符串
+     * @throws Exception 可能有读文件的IO异常
+     */
+    public static String loadResource(String fileName) throws Exception {
+        String result;
+        try(InputStream in = Utils.class.getResourceAsStream(fileName);
+            Scanner scanner = new Scanner(in, StandardCharsets.UTF_8.name())) {
+            result = scanner.useDelimiter(&quot;\\A&quot;).next();
+        }
+        return result;
+    }
+}
+</code></pre>
+<h3 id="分解3-渲染器">分解3: 渲染器</h3>
+<p>将三角形渲染的主要工作放在本部分，在进入具体的代码讲解前需要厘清两个概念，顶点缓冲对象（VBO）和顶点数组对象（VAO）。</p>
+<ul>
+<li>VBO：顶点缓冲对象VBO是在显卡存储空间中开辟出的一块内存缓存区，用于存储顶点的各类属性信息，如顶点坐标，顶点法向量，顶点颜色数据等。在渲染时，可以直接从VBO中取出顶点的各类属性数据，由于VBO在显存而不是在内存中，不需要从CPU传输数据，处理效率更高。</li>
+<li>VAO：VBO保存了一个模型的顶点属性信息，每次绘制模型之前需要绑定顶点的所有信息，当数据量很大时，重复这样的动作变得非常麻烦。VAO可以把这些所有的配置都存储在一个对象中，每次绘制模型时，只需要绑定这个VAO对象就可以了VAO是一个保存了所有顶点数据属性的状态结合，<strong>它存储了顶点数据的格式以及顶点数据所需的VBO对象的引用。VAO本身并没有存储顶点的相关属性数据，这些信息是存储在VBO中的，VAO相当于是对很多个VBO的引用</strong>，把一些VBO组合在一起作为一个对象统一管理。</li>
+</ul>
+<p>下面是代码的解释，<code>init()</code>方法初始化整个Renderer，步骤如下：</p>
+<ol>
+<li>装载并创建顶点着色器与片元着色器，然后链接。</li>
+<li>创建vao对象，将其绑定</li>
+<li>创建vbo对象，将之前指定的顶点位置数据通过Buffer绑定到vbo上</li>
+<li>启用0号顶点数组，在vao和vbo均绑定的情况下为vao的属性列表定义数据结构。结构为从0开始每组3个FLOAT。</li>
+<li>解绑vbo和vao</li>
+</ol>
+<pre><code class="language-java">/**
+    * 初始化方法，创建shaderProgram
+    * 之后读取code创建顶点着色器和片元着色器
+    * 最后完成链接
+    * @throws Exception
+    */
+public void init() throws Exception {
+    this.shaderProgram = new ShaderProgram();
+    shaderProgram.createVertexShader(loadResource(&quot;/vertex.vs&quot;));
+    shaderProgram.createFragmentShader(loadResource(&quot;/fragment.fs&quot;));
+    shaderProgram.link();
+    // 需要渲染的一个三角形
+    float[] vertices = new float[]{
+            0.0f, 0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+            0.5f, -0.5f, 0.0f
+    };
+    FloatBuffer verticesBuffer = null;
+
+    try {
+        // 我们使用OpenGL接口必须将浮点数组转为可以被库管理的buffer
+        verticesBuffer = MemoryUtil.memAllocFloat(vertices.length);
+        verticesBuffer.put(vertices).flip(); // 装在数组并将缓冲区位置重置，从0开始读(nio基础)
+
+        // 创建vao,即顶点数组对象并绑定
+        vaoId = glGenVertexArrays();
+        glBindVertexArray(vaoId);
+
+        // 创建vbo即顶点缓冲对象，即一个显存中存储顶点的内存缓冲区
+        // 然后绑定数据
+        vboId = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, vboId);
+        glBufferData(GL_ARRAY_BUFFER, verticesBuffer, GL_STATIC_DRAW);
+
+        // 启用0号顶点数组
+        glEnableVertexAttribArray(0);
+
+        // 定义数据结构并将其存储在VAO的属性列表中
+        // index: 指定着色器期望此数据的位置。
+        // size: 指定每个顶点属性的数据数（从1到4）。现在，我们使用三维坐标，所以它应该是3。
+        // type: 指定数组中每个数据的类型，现在是浮点数。
+        // normalized: 指定值是否应归一化。
+        // stride: 指定连续顶点数据之间的字节偏移量（稍后我们再解释）。
+        // offset: 指定缓冲区中第一个数据的偏移量。
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+
+        // 解绑VBO
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        // 解绑VAO
+        glBindVertexArray(0);
+    } finally {
+        if(verticesBuffer != null) {
+            MemoryUtil.memFree(verticesBuffer);
+        }
+    }
+}
+</code></pre>
+<p><code>render()</code>方法是渲染时实际使用的方法，这一步接收窗口对象并做好窗口尺寸更新。在渲染方面：</p>
+<ol>
+<li>使用纯色清除缓冲区</li>
+<li>绑定shader程序</li>
+<li>绑定vao</li>
+<li>使用绑定的vao绘制顶点，注意vao记录了结构信息，而显存中的vbo实际存储着数据</li>
+<li>解绑vao和shader程序</li>
+</ol>
+<pre><code class="language-java">/**
+    * 渲染功能
+    * @param window 传递来的窗口
+    */
+public void render(Window window) {
+    // 清除
+    clear();
+    if(window.isResized()) {
+        // 如果窗口更新了尺寸，则更新GL的视口
+        glViewport(0, 0, window.getWidth(), window.getHeight());
+        window.setResized(false);
+    }
+    // 绑定shader程序
+    shaderProgram.bind();
+
+    // 绑定VAO
+    glBindVertexArray(vaoId);
+
+    // 绘制顶点
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // 解绑VAO和还原
+    glBindVertexArray(0);
+
+    shaderProgram.unbind();
+}
+</code></pre>
+<p><code>cleanup()</code>执行最终的清除动作，要释放shader程序并禁用0号顶点数组，删除vbo和vao</p>
+<pre><code class="language-java">/**
+    * 清除程序
+    */
+public void cleanup() {
+    if(shaderProgram != null) {
+        shaderProgram.cleanup();
+    }
+
+    // 禁用0号顶点数组
+    glDisableVertexAttribArray(0);
+
+    // 删除VBO
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(vboId);
+
+    // 删除VAO
+    glBindVertexArray(0);
+    glDeleteVertexArrays(vaoId);
+}
+</code></pre>
+<h3 id="分解4-其他改变">分解4: 其他改变</h3>
+<p>改变了游戏的一些调用，首先将游戏逻辑中的<code>render()</code>方法主要逻辑放在<code>Renderer</code>中实现，这样该部分只要设置好背景颜色然后渲染即可。<br>
+此外在<code>IGameLogic</code>中添加了<code>cleanup()</code>方法，目前实现上直接调用<code>Render</code>的同名方法即可。</p>
+<p>效果：<br>
+<img src="https://dxone1.github.io//post-images/1642163513617.png" alt="" loading="lazy"></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[Lwjgl学习0：hello world]]></title>
         <id>https://dxone1.github.io/post/lwjgl-xue-xi-0hello-world/</id>
@@ -3507,592 +3815,6 @@ public void checkItem(Long skuId, Integer check) {
 <p>逻辑更加简单，使用绑定hash的操作直接删除该项目即可</p>
 <p>最终的实现效果：<br>
 <img src="https://dxone1.github.io//post-images/1637981515113.png" alt="" loading="lazy"></p>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城项目 day15：认证服务]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day15ren-zheng-fu-wu/">
-        </link>
-        <updated>2021-11-22T02:54:30.000Z</updated>
-        <content type="html"><![CDATA[<p>在登陆时需要通过认证服务获得可以使用部分业务功能的权限和用户的服务，这是系统必备的一项功能。一样的，首先创建一个认证的服务模块<code>mall-auth-server</code>，会集成社交登录，OAuth2.0，单点登录</p>
-<h2 id="环境搭建">环境搭建</h2>
-<ol>
-<li>编排服务的host地址和Nginx、网关的转发</li>
-<li>Nginx放置静态资源</li>
-<li>controller的设置</li>
-</ol>
-<h2 id="手机验证码服务">手机验证码服务</h2>
-<ol>
-<li>验证码倒计时功能<br>
-手机验证码遵循：发送验证码 -&gt; 倒计时 -&gt; 再次可以发送验证码的流程，实现使用js的倒计时器，当点击发送验证码时会将文本替换为<code>(倒计时时间) + 秒后可以再次发送</code>，同时标记一个<code>disabled</code>的class防止产生多个倒计时器。当倒计时到0时重置文本和最大倒计时。倒计时器一秒触发一次。</li>
-</ol>
-<pre><code class="language-js">$(function () {
-    $(&quot;#sendCode&quot;).click(function () {
-        //1.发送验证码
-        // TODO
-        //2.倒计时
-        if(!$(this).hasClass(&quot;disabled&quot;)) {
-            timeoutChangeStyle();
-        }
-    });
-})
-
-var num = 60;
-function timeoutChangeStyle() {
-    $(&quot;#sendCode&quot;).attr(&quot;class&quot;, &quot;disabled&quot;);
-    if(num == 0) {
-        $(&quot;#sendCode&quot;).text(&quot;发送验证码&quot;);
-        num = 60;
-        $(&quot;#sendCode&quot;).attr(&quot;class&quot;, &quot;&quot;);
-    } else {
-        var str = num+&quot;秒后可以再次发送&quot;;
-        $(&quot;#sendCode&quot;).text(str);
-        num--;
-        setTimeout(&quot;timeoutChangeStyle()&quot;,1000);
-    }
-}
-</code></pre>
-<p>使用viewController实现视图解析跳转</p>
-<pre><code class="language-java">@Configuration
-public class MallWebConfig implements WebMvcConfigurer {
-    @Override
-    public void addViewControllers(ViewControllerRegistry registry) {
-        registry.addViewController(&quot;/login.html&quot;).setViewName(&quot;login&quot;);
-        registry.addViewController(&quot;/reg.html&quot;).setViewName(&quot;reg&quot;);        
-    }
-}
-</code></pre>
-<h2 id="短信验证码服务">短信验证码服务</h2>
-<p>先在阿里云上购买一个短信接口服务，然后调试完成短信发送功能</p>
-<pre><code class="language-java">@ConfigurationProperties(prefix = &quot;spring.cloud.alicloud.sms&quot;)
-@Data
-@Component
-public class SmsComponent {
-
-    private String host;
-    private String path;
-    private String skin;
-    private String appcode;
-
-    public void sendSmsCode(String phone, String code) {
-        String method = &quot;GET&quot;;
-        System.out.println(&quot;请先替换成自己的AppCode&quot;);
-        Map&lt;String, String&gt; headers = new HashMap&lt;String, String&gt;();
-        headers.put(&quot;Authorization&quot;, &quot;APPCODE &quot; + appcode); //格式为:Authorization:APPCODE 83359fd73fe11248385f570e3c139xxx
-        Map&lt;String, String&gt; querys = new HashMap&lt;String, String&gt;();
-        querys.put(&quot;code&quot;, code);// !!! 请求参数
-        querys.put(&quot;phone&quot;, phone);// !!! 请求参数
-        querys.put(&quot;skin&quot;, skin);// !!! 请求参数
-        try {
-            HttpResponse response = HttpUtils.doGet(host, path, method, headers, querys);
-            //System.out.println(response.toString()); //输出头部
-            System.out.println(EntityUtils.toString(response.getEntity())); //输出json
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-}
-</code></pre>
-<p>需要注意的是，后端要进行验证并阻止反复刷验证，同时也要保存一定时间的验证码结果，这可以使用Redis实现</p>
-<pre><code class="language-java">@ResponseBody
-@GetMapping(&quot;/sms/sendcode&quot;)
-public R sendCode(@RequestParam(&quot;phone&quot;) String phone) {
-    // 1. 接口防刷
-    String redisCode = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + phone);
-    if(redisCode != null) {
-        long l = Long.parseLong(redisCode.split(&quot;_&quot;)[1]);
-        if (System.currentTimeMillis() - l &lt; 60000) {
-            // 60秒内不能再发
-            return R.error(BizCodeEnum.SMS_CODE_EXCEPTION.getCode(), BizCodeEnum.SMS_CODE_EXCEPTION.getMsg());
-        }
-    }
-
-    String code = UUID.randomUUID().toString().substring(0, 6) + &quot;_&quot; + System.currentTimeMillis();
-    // 2. 验证码再次校验: 存入redis缓存: key:phoneNum - value:code
-    redisTemplate.opsForValue().set(AuthServerConstant.SMS_CODE_CACHE_PREFIX + phone, code, 20, TimeUnit.MINUTES);
-    //实际接入短信验证码接口
-    //thirdPartFeignService.sendCode(phone, code.split(&quot;_&quot;)[0]);
-    // 测试
-    System.out.println(&quot;phone:&quot; + phone + &quot; code:&quot; + code.split(&quot;_&quot;)[0]);
-    return R.ok();
-}
-</code></pre>
-<h2 id="注册功能">注册功能</h2>
-<p>在注册页面的控制器如下，能够完成校验和错误封装功能，并调用远程服务实际完成注册。详细拆解这一部分的内容</p>
-<h3 id="格式验证">格式验证</h3>
-<p>需要对传递过来的注册信息进行格式验证，仍然使用JSR的标准注解，同时使用RedirectAttributes重定向后保存错误信息</p>
-<pre><code class="language-java">if (result.hasErrors()) {
-    // 验证出错转发到注册页
-    Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
-    result.getFieldErrors().stream().forEach(fieldError -&gt; {
-        if (errors.containsKey(fieldError.getField()) &amp;&amp; errors.get(fieldError.getField()).contains(&quot;必须填写&quot;)) {
-
-        } else {
-            errors.put(fieldError.getField(), fieldError.getDefaultMessage());
-        }
-    });
-    redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
-    return &quot;redirect:http://auth.mall.com/reg.html&quot;;
-}
-</code></pre>
-<h3 id="验证码时效验证">验证码时效验证</h3>
-<p>从Redis中取出缓存，查看是否失效和匹配</p>
-<pre><code class="language-java">// 真正注册：远程服务注册
-String code = vo.getCode();
-String s = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
-if (!StringUtils.isEmpty(s) &amp;&amp; code.equals(s.split(&quot;_&quot;)[0])) {
-    // 删除验证码，令牌机制
-    redisTemplate.delete(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
-    // 验证码通过，远程注册
-
-} else {
-    HashMap&lt;String, String&gt; errors = new HashMap&lt;&gt;();
-    errors.put(&quot;code&quot;, &quot;验证码错误&quot;);
-    redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
-    return &quot;redirect:http://auth.mall.com/reg.html&quot;;
-}
-
-return &quot;redirect:/login.html&quot;;
-</code></pre>
-<h3 id="唯一性异常">唯一性异常</h3>
-<p>当出现唯一性校验问题时直接由方法抛出异常，在controller接收数据后封装。</p>
-<pre><code class="language-java">@Override
-public void regist(MemberRegistVo vo) {
-    MemberEntity memberEntity = new MemberEntity();
-
-    // 设置为默认等级
-    MemberLevelEntity levelEntity = memberLevelDao.getDefaultLevel();
-    memberEntity.setLevelId(levelEntity.getId());
-
-    // 设置
-    // 唯一性校验 - 使用异常机制
-    checkPhoneUnique(vo.getPhone());
-    checkPhoneUnique(vo.getUserName());
-
-    memberEntity.setMobile(vo.getPhone());
-    memberEntity.setUsername(vo.getUserName());
-
-    // 密码保存：使用MD5加密存储密码
-
-
-    baseMapper.insert(memberEntity);
-}
-
-
-@Override
-public void checkPhoneUnique(String phone) throws PhoneExistsException {
-    Integer count = this.baseMapper.selectCount(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;mobile&quot;, phone));
-    if(count &gt; 0) {
-        throw new PhoneExistsException();
-    }
-}
-
-@Override
-public void checkUsernameUnique(String username) throws UsernameExistsException {
-    Integer count = this.baseMapper.selectCount(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;username&quot;, username));
-    if(count &gt; 0) {
-        throw new UsernameExistsException();
-    }
-}
-</code></pre>
-<p>Controller的异常处理</p>
-<pre><code class="language-java">@PostMapping(&quot;/regist&quot;)
-public R regist(@RequestBody MemberRegistVo vo) {
-    try {
-        memberService.regist(vo);
-    } catch (PhoneExistsException e) {
-        return R.error(BizCodeEnum.PHONE_EXIST_EXCEPTION.getCode(), BizCodeEnum.PHONE_EXIST_EXCEPTION.getMsg());
-    } catch (UsernameExistsException e) {
-        return R.error(BizCodeEnum.USER_EXIST_EXCEPTION.getCode(), BizCodeEnum.USER_EXIST_EXCEPTION.getMsg())
-    }
-    return R.ok();
-}
-</code></pre>
-<h3 id="md5盐值加密">MD5盐值加密</h3>
-<p>MD5是一种不可逆的明文加密手段，但是如果直接加密很有可能通过暴力枚举的数据库查询到。使用盐值加密增加了一个扰动使得破解变得困难无比。Spring提供了一个封装</p>
-<pre><code class="language-java">@Test
-public void contextLoads() {
-    BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-    String encode = passwordEncoder.encode(&quot;123456&quot;);
-    boolean matches = passwordEncoder.matches(&quot;123456&quot;, &quot;$2a$10$dAr8XERaa3rX3qt3dkBp4uzoRkPHIOn4dS2DkcaA3niFs4A9CKkPe&quot;);
-    System.out.println(matches);
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1637587348313.png" alt="" loading="lazy"><br>
-完整版Controller</p>
-<pre><code class="language-java">@PostMapping(&quot;/regist&quot;)
-public String regist(@Valid UserRegistVo vo, BindingResult result, RedirectAttributes redirectAttributes) {
-    if (result.hasErrors()) {
-        // 验证出错转发到注册页
-        Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
-        result.getFieldErrors().stream().forEach(fieldError -&gt; {
-            if (errors.containsKey(fieldError.getField()) &amp;&amp; errors.get(fieldError.getField()).contains(&quot;必须填写&quot;)) {
-
-            } else {
-                errors.put(fieldError.getField(), fieldError.getDefaultMessage());
-            }
-        });
-        redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
-        return &quot;redirect:http://auth.mall.com/reg.html&quot;;
-    }
-    // 真正注册：远程服务注册
-    String code = vo.getCode();
-    String s = redisTemplate.opsForValue().get(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
-    if (!StringUtils.isEmpty(s) &amp;&amp; code.equals(s.split(&quot;_&quot;)[0])) {
-        // 删除验证码，令牌机制
-        redisTemplate.delete(AuthServerConstant.SMS_CODE_CACHE_PREFIX + vo.getPhone());
-        // 验证码通过，远程注册
-
-        R r = memberFeignService.regist(vo);
-        if(r.getCode() == 0) {
-            // 成功
-            return &quot;redirect:http://auth.mall.com/login.html&quot;;
-        } else {
-            Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();
-            errors.put(&quot;msg&quot;, r.getData(&quot;msg&quot;, new TypeReference&lt;String&gt;(){}));
-            redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
-            return &quot;redirect:http://auth.mall.com/reg.html&quot;;
-        }
-    } else {
-        HashMap&lt;String, String&gt; errors = new HashMap&lt;&gt;();
-        errors.put(&quot;code&quot;, &quot;验证码错误&quot;);
-        redirectAttributes.addFlashAttribute(&quot;errors&quot;, errors);
-        return &quot;redirect:http://auth.mall.com/reg.html&quot;;
-    }
-}
-</code></pre>
-<p>注册成功会跳转到登录页，否则回到注册页并显示问题</p>
-<h2 id="账号密码登录">账号密码登录</h2>
-<pre><code class="language-java">@Override
-public MemberEntity login(MemberLoginVo vo) {
-    String loginacct = vo.getLoginacct();
-    String password = vo.getPassword();
-
-    // 1. 去数据库查询密码
-    MemberEntity entity = baseMapper.selectOne(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;username&quot;, loginacct).or().eq(&quot;mobile&quot;, loginacct));
-    if(entity == null) {
-        return null;
-    } else {
-        String passwordDb = entity.getPassword();
-        BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-        // 2. 密码匹配
-        if (passwordEncoder.matches(password, passwordDb)) {
-            return entity;
-        } else {
-            return null;
-        }
-    }
-}
-</code></pre>
-<h2 id="社交登录">社交登录</h2>
-<ul>
-<li>OAuth（开放授权） 是一个开放标准， 允许用户授权第三方网站访问他们存储在另外的服务提供者上的信息， 而不需要将用户名和密码提供给第三方网站或分享他们数据的所有内容。</li>
-<li>OAuth2.0： 对于用户相关的 OpenAPI（例如获取用户信息， 动态同步， 照片， 日志， 分享等） ， 为了保护用户数据的安全和隐私， 第三方网站访问用户数据前都需要显式的向用户征求授权<br>
-<img src="https://dxone1.github.io//post-images/1637643932048.png" alt="" loading="lazy"></li>
-</ul>
-<h3 id="接入微博第三方登录">接入微博第三方登录</h3>
-<p>先在微博开放平台创建账号、应用并填写相关信息<br>
-<img src="https://dxone1.github.io//post-images/1637742996836.png" alt="" loading="lazy"></p>
-<ol>
-<li>当点击微博登陆时，跳转到如下超链接</li>
-</ol>
-<pre><code class="language-java">https://api.weibo.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&amp;response_type=code&amp;redirect_uri=YOUR_REGISTERED_REDIRECT_URI
-</code></pre>
-<ol start="2">
-<li>成功授权后会跳转到指定成功回调页面，同时返回code</li>
-</ol>
-<pre><code class="language-java">http://mall.com/success?code=197c0fba7cf6066ef5dc7cac1aed1289
-</code></pre>
-<ol start="3">
-<li>使用code到如下地址换取access Token</li>
-</ol>
-<pre><code class="language-java">https://api.weibo.com/oauth2/access_token?client_id=YOUR_CLIENT_ID&amp;client_secret=YOUR_CLIENT_SECRET&amp;grant_type=authorization_code&amp;redirect_uri=YOUR_REGISTERED_REDIRECT_URI&amp;code=CODE
-</code></pre>
-<ol start="4">
-<li>使用AccessToken获取weibo的各类型开放数据</li>
-<li>获取当前用户的id，查询是否已经注册。已经注册的登录，否则新建一个默认账号</li>
-</ol>
-<pre><code class="language-java">@Override
-public MemberEntity login(SocialUser socialUser) throws Exception {
-    // 登录和注册两个逻辑
-    MemberEntity memberEntity = baseMapper.selectOne(new QueryWrapper&lt;MemberEntity&gt;().eq(&quot;social_uid&quot;, socialUser.getUid()));
-    if (memberEntity != null) {
-        //已经注册了
-        //更新数据库
-        MemberEntity update = new MemberEntity();
-        update.setId(memberEntity.getId());
-        update.setAccessToken(socialUser.getAccess_token());
-        update.setExpiresIn(socialUser.getExpires_in());
-        baseMapper.updateById(update);
-        //返回
-        memberEntity.setAccessToken(socialUser.getAccess_token());
-        memberEntity.setExpiresIn(socialUser.getExpires_in());
-        return memberEntity;
-    } else {
-        MemberEntity regist = new MemberEntity();
-        try {
-            // 查询社交帐号信息（昵称，性别等）
-            Map&lt;String, String&gt; query = new HashMap&lt;&gt;();
-            query.put(&quot;access_token&quot;, socialUser.getAccess_token());
-            query.put(&quot;uid&quot;, socialUser.getUid());
-            HttpResponse response = HttpUtils.doGet(&quot;https://api.weibo.com&quot;, &quot;/2/users/show.json&quot;, &quot;get&quot;, new HashMap&lt;String, String&gt;(), query);
-            if (response.getStatusLine().getStatusCode() == 200) {
-                //成功
-                String json = EntityUtils.toString(response.getEntity());
-                JSONObject jsonObject = JSON.parseObject(json);
-                String name = jsonObject.getString(&quot;name&quot;);
-                String gender = jsonObject.getString(&quot;gender&quot;);
-                regist.setNickname(name);
-                if (gender != null) {
-                    regist.setGender(&quot;m&quot;.equals(gender) ? 1 : 0);
-                }
-            }
-        } catch (Exception e) {
-            
-        }
-        regist.setSocialIUid(socialUser.getUid());
-        regist.setAccessToken(socialUser.getAccess_token());
-        regist.setExpiresIn(socialUser.getExpires_in());
-        
-        baseMapper.insert(regist);
-        return regist;
-    }
-}
-</code></pre>
-<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1637818018183.png" alt="" loading="lazy"></figure>
-<h2 id="分布式session">分布式Session</h2>
-<p>如果想使用Session在分布式系统中就必须解决分布式Session的问题</p>
-<ul>
-<li>如果是同个服务的集群，那么就必须解决共享问题</li>
-<li>如果要在服务之间共享session，就需要互通</li>
-</ul>
-<ol>
-<li>Session复制<br>
-tomcat原生支持，只需要修改配置文件即可。然而其会占用大量的带宽，会降低业务处理能力。</li>
-<li>客户端存储<br>
-用户自己保存session信息到cookie中，然而安全信很低，也很消耗带宽。http请求能保存的信息也不多。</li>
-<li>使用Hash一致性<br>
-负载均衡使只有固定的服务器服务同一个ip。</li>
-<li>统一Session存储<br>
-<img src="https://dxone1.github.io//post-images/1637761441421.png" alt="" loading="lazy"><br>
-子域session共享：<br>
-第一次使用session会命令浏览器保存JSESSIONID的cookie，此后访问那个网站都会带上cookie<br>
-子域之间共享seesion的cookie，则需要在设置JSESSIONID时将domain扩大（域扩大为它们的父）。</li>
-</ol>
-<h3 id="spring-session">Spring Session</h3>
-<p>spring Session基于统一Session存储解决session共享问题，使用resdis担任session存储。</p>
-<ol>
-<li>导入依赖</li>
-<li>在配置类上添加@EnableRedisHttpSession注解，开启基于Redis的HttpSession功能</li>
-<li>需要更改SESSION的Domain为父域，这样同一个父域下的服务才能共享同一组SESSION。</li>
-<li>在mall-product服务下的首页通过取出session的内容即可知道当前用户的id等信息。<br>
-需要解决两个问题：</li>
-</ol>
-<ul>
-<li>改变SESSION的作用域</li>
-<li>改变序列化机制为JSON</li>
-</ul>
-<h3 id="修改cookie的作用域">修改cookie的作用域</h3>
-<p>参考文档，在容器中放置一个CookieSerializer。</p>
-<pre><code class="language-java">@Configuration
-public class MallSessionConfig {
-    @Bean
-    public CookieSerializer cookieSerializer() {
-        DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
-        cookieSerializer.setDomainName(&quot;mall.com&quot;);
-        cookieSerializer.setCookieName(&quot;MALLSESSION&quot;);
-        return cookieSerializer;
-    }
-}
-</code></pre>
-<h3 id="使用json序列化的redis-spring-session">使用JSON序列化的Redis Spring Session</h3>
-<p>参考官方文档，在容器中添加一个RedisSerializer</p>
-<pre><code class="language-java">@Bean
-public RedisSerializer&lt;Object&gt; springSessionDefaultRedisSerializer() {
-    return new GenericJackson2JsonRedisSerializer();
-}
-</code></pre>
-<p>成功实现了跨域、跨服务的分布式Session登录效果<br>
-<img src="https://dxone1.github.io//post-images/1637818316762.png" alt="" loading="lazy"></p>
-<h3 id="spring-session的原理">Spring Session的原理</h3>
-<p>@EnableRedisHttpSession添加了</p>
-<ul>
-<li>RedisOperationSessionRepository的组件，是Session的增删改查的封装类。</li>
-<li>SessionRepositoryFilter，过滤每一个Http的请求。</li>
-</ul>
-<p>一旦创建 SessionRepositoryFilter就要组合一个SessionRepository，执行doFilter会：</p>
-<ul>
-<li>先设置当前请求的Session操作实例</li>
-<li>将原生请求包装成适配的形式</li>
-<li>使用过滤器链（职责链模式）执行包装请求<br>
-<img src="https://dxone1.github.io//post-images/1637832139052.png" alt="" loading="lazy"><br>
-原因在于：<br>
-原生的session通过如下方法获取：</li>
-</ul>
-<pre><code class="language-java">HttpSession session = request.getSession();
-</code></pre>
-<p>而在这个拦截器中将原生的Request包装了。那么以后调用<code>session.getSession()</code>调用的就是SessionRepositoryRequestWrapper的方法：</p>
-<pre><code class="language-java">@Override
-public HttpSessionWrapper getSession(boolean create) {
-    HttpSessionWrapper currentSession = getCurrentSession();
-    if (currentSession != null) {
-        return currentSession;
-    }
-    S requestedSession = getRequestedSession();
-    if (requestedSession != null) {
-        if (getAttribute(INVALID_SESSION_ID_ATTR) == null) {
-            requestedSession.setLastAccessedTime(Instant.now());
-            this.requestedSessionIdValid = true;
-            currentSession = new HttpSessionWrapper(requestedSession, getServletContext());
-            currentSession.setNew(false);
-            setCurrentSession(currentSession);
-            return currentSession;
-        }
-    }
-    else {
-        // This is an invalid session id. No need to ask again if
-        // request.getSession is invoked for the duration of this request
-        if (SESSION_LOGGER.isDebugEnabled()) {
-            SESSION_LOGGER.debug(
-                    &quot;No session found by id: Caching result for getSession(false) for this HttpServletRequest.&quot;);
-        }
-        setAttribute(INVALID_SESSION_ID_ATTR, &quot;true&quot;);
-    }
-    if (!create) {
-        return null;
-    }
-    if (SESSION_LOGGER.isDebugEnabled()) {
-        SESSION_LOGGER.debug(
-                &quot;A new session was created. To help you troubleshoot where the session was created we provided a StackTrace (this is not an error). You can prevent this from appearing by disabling DEBUG logging for &quot;
-                        + SESSION_LOGGER_NAME,
-                new RuntimeException(
-                        &quot;For debugging purposes only (not an error)&quot;));
-    }
-    S session = SessionRepositoryFilter.this.sessionRepository.createSession();
-    session.setLastAccessedTime(Instant.now());
-    currentSession = new HttpSessionWrapper(session, getServletContext());
-    setCurrentSession(currentSession);
-    return currentSession;
-}
-</code></pre>
-<p>是使用SessionRepository中获取的，而这里的实现是RedisOperationSessionRepository，故是通过Redis获取的。使用了装饰者模式。</p>
-<h2 id="单点登录">单点登录</h2>
-<p>多系统场景中，希望不同系统之间可以统一的进行认证。而在这个场景中最多将域名放大至一级域名，这会导致多系统间无法共享session而难以完成共享登录信息的业务功能。<br>
-使用gitee的单点登录框架即可实现在一个统一认证中心登录之后处处都可以登录的效果。<br>
-系统流程：</p>
-<ol>
-<li>client1进入服务时要求登录，跳转到登录服务器，在参数中带上url</li>
-<li>服务器得到登录请求，将url封装到model中传递给页面</li>
-<li>页面得到url和相关登录参数，返回controller，验证是否登录成功。如果成功则添加用户信息到redis中，同时将key作为令牌回传给登录发起服务页，这个页面是一路传递的url</li>
-<li>登录发起页判断token是否成功获取，并以此得到用户信息。</li>
-<li>通过添加一个cookie标记浏览器，则同浏览器都可以获取单点登录的sso_token。于是只要一个页面登录成功过凡是访问到登录页面都可以发现这里有一个sso_token的cookie。</li>
-<li>在登录页一开始就判断：如果有sso_token这个cookie则直接返回，否则再进行登录流程。</li>
-</ol>
-<p>服务器：</p>
-<pre><code class="language-java">@Controller
-public class LoginController {
-
-    @ResponseBody
-    @GetMapping(&quot;/userInfo&quot;)
-    public String userInfo(@RequestParam(&quot;token&quot;) String token) {
-        String s = redisTemplate.opsForValue().get(token);
-        return s;
-    }
-
-    @Autowired
-    StringRedisTemplate redisTemplate;
-
-    @PostMapping(&quot;/doLogin&quot;)
-    public String doLogin(@RequestParam(&quot;username&quot;) String username,
-                          @RequestParam(&quot;password&quot;) String password,
-                          @RequestParam(&quot;url&quot;) String url,
-                          HttpServletResponse response) {
-
-
-        if (!StringUtils.isEmpty(username) &amp;&amp; !StringUtils.isEmpty(password)) {
-            // 认为登录成功
-
-            String uuid = UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;);
-            // 保存到redis中，标记登录成功
-            redisTemplate.opsForValue().set(uuid, username);
-            // 保存到session中，单点登录
-            Cookie sso_token = new Cookie(&quot;sso_token&quot;, uuid);
-            response.addCookie(sso_token);
-            return &quot;redirect:&quot; + url + &quot;?token=&quot; + uuid;
-        } else {
-            return &quot;redirect:http://sso.com:8080/login?redirect_url=&quot; + url;
-        }
-    }
-
-    @GetMapping(&quot;/login&quot;)
-    public String loginPage(@RequestParam(&quot;redirect_url&quot;) String url,
-                            Model model,
-                            @CookieValue(value = &quot;sso_token&quot;, required = false) String sso_token) {
-        //说明以前已经登录过了！
-        if (!StringUtils.isEmpty(sso_token)) {
-            return &quot;redirect:&quot; + url + &quot;?token=&quot; + sso_token;
-        }
-        model.addAttribute(&quot;url&quot;, url);
-        return &quot;login&quot;;
-    }
-}
-</code></pre>
-<p>服务器页面</p>
-<pre><code class="language-html">&lt;!DOCTYPE html&gt;
-&lt;html lang=&quot;en&quot; xmlns:th=&quot;http://www.thymeleaf.org&quot;&gt;
-&lt;head&gt;
-    &lt;meta charset=&quot;UTF-8&quot;&gt;
-    &lt;title&gt;Title&lt;/title&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;form action=&quot;/doLogin&quot; method=&quot;post&quot;&gt;
-    姓名：&lt;input name=&quot;username&quot;/&gt;&lt;/br&gt;
-    密码：&lt;input name=&quot;password&quot; type=&quot;password&quot;&gt;&lt;/br&gt;
-    &lt;input type=&quot;hidden&quot; name=&quot;url&quot; th:value=&quot;${url}&quot;&gt;
-    &lt;input type=&quot;submit&quot; name=&quot;提交&quot;&gt;
-&lt;/form&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-</code></pre>
-<p>单点登录发起控制器</p>
-<pre><code class="language-java">@Controller
-public class HelloController {
-
-    @Value(&quot;${sso.server.url}&quot;)
-    String ssoServerUrl;
-
-    @ResponseBody
-    @GetMapping(&quot;/hello&quot;)
-    public String hello() {
-        return &quot;hello&quot;;
-    }
-
-    @GetMapping(&quot;/employees&quot;)
-    public String employees(Model model, HttpSession session, @RequestParam(value = &quot;token&quot;, required = false) String token) {
-        if(!StringUtils.isEmpty(token)) {
-            //认为登录成功
-            RestTemplate restTemplate = new RestTemplate();
-            ResponseEntity&lt;String&gt; forEntity = restTemplate.getForEntity(&quot;http://sso.com:8080/userInfo?token=&quot; + token, String.class);
-            String body = forEntity.getBody();
-            session.setAttribute(&quot;loginUser&quot;, body);
-        }
-
-        Object loginUser = session.getAttribute(&quot;loginUser&quot;);
-        if(loginUser == null) {
-            //未登录，跳转到登录服务器登录
-            //带上参数标识回跳页面
-            return &quot;redirect:&quot; + ssoServerUrl+&quot;?redirect_url=http://client2.com:8081/employees&quot;;
-        } else {
-            List&lt;String&gt; emps = new ArrayList&lt;&gt;();
-            emps.add(&quot;张三&quot;);
-            emps.add(&quot;李四&quot;);
-            model.addAttribute(&quot;emps&quot;, emps);
-            return &quot;list&quot;;
-        }
-    }
-}
-</code></pre>
 ]]></content>
     </entry>
 </feed>
