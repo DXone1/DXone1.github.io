@@ -2,14 +2,166 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://dxone1.github.io/</id>
     <title>Gridea</title>
-    <updated>2021-12-17T03:24:52.385Z</updated>
+    <updated>2022-01-14T08:49:23.331Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://dxone1.github.io/"/>
     <link rel="self" href="https://dxone1.github.io/atom.xml"/>
     <subtitle>温故而知新</subtitle>
     <logo>https://dxone1.github.io/images/avatar.png</logo>
     <icon>https://dxone1.github.io/favicon.ico</icon>
-    <rights>All rights reserved 2021, Gridea</rights>
+    <rights>All rights reserved 2022, Gridea</rights>
+    <entry>
+        <title type="html"><![CDATA[Lwjgl学习0：hello world]]></title>
+        <id>https://dxone1.github.io/post/lwjgl-xue-xi-0hello-world/</id>
+        <link href="https://dxone1.github.io/post/lwjgl-xue-xi-0hello-world/">
+        </link>
+        <updated>2022-01-08T08:13:12.000Z</updated>
+        <content type="html"><![CDATA[<p>Lwjgl是一个基于Java的轻量级底层的API，它像一个OpenGL包装库。通过它来学习基本的3D图形渲染技术。</p>
+<h2 id="get-start">get start</h2>
+<p>Lwjgl是一个Java语言的OpenGL图形库包装，可以方便地通过之前的技术栈迁移上手学习。这个项目基于Lwjglbook的中文文档：<code>https://mouse0w0.github.io/lwjglbook-CN-Translation/01-first-steps/</code><br>
+其他参考资料主要来自官网和github wiki<br>
+<code>https://www.lwjgl.org/guide</code><br>
+<code>https://github.com/LWJGL/lwjgl3-wiki/wiki</code><br>
+开始我们的项目，我们使用熟悉的maven进行包管理，中文搜索的maven依赖都是不全面的。这里参考了<code>https://stackoverflow.com/questions/54701950/how-to-setup-lwjgl-with-maven/62181151#62181151</code> 的回答，只需要使用提供的网页就可以快速生成pom文件，网页地址如下：<br>
+<code>https://www.lwjgl.org/customize</code><br>
+本项目的gitee目录：<code>https://gitee.com/dxone/testLwjgl</code><br>
+运行测试代码</p>
+<pre><code class="language-java">import org.lwjgl.*;
+import org.lwjgl.glfw.*;
+import org.lwjgl.opengl.*;
+import org.lwjgl.system.*;
+
+import java.nio.*;
+
+import static org.lwjgl.glfw.Callbacks.*;
+import static org.lwjgl.glfw.GLFW.*;
+import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.system.MemoryStack.*;
+import static org.lwjgl.system.MemoryUtil.*;
+
+public class HelloWorld {
+
+    // The window handle
+    private long window;
+
+    public void run() {
+        System.out.println(&quot;Hello LWJGL &quot; + Version.getVersion() + &quot;!&quot;);
+
+        init();
+        loop();
+
+        // Free the window callbacks and destroy the window
+        glfwFreeCallbacks(window);
+        glfwDestroyWindow(window);
+
+        // Terminate GLFW and free the error callback
+        glfwTerminate();
+        glfwSetErrorCallback(null).free();
+    }
+
+    private void init() {
+        // Setup an error callback. The default implementation
+        // will print the error message in System.err.
+        GLFWErrorCallback.createPrint(System.err).set();
+
+        // Initialize GLFW. Most GLFW functions will not work before doing this.
+        if ( !glfwInit() )
+            throw new IllegalStateException(&quot;Unable to initialize GLFW&quot;);
+
+        // Configure GLFW
+        glfwDefaultWindowHints(); // optional, the current window hints are already the default
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // the window will stay hidden after creation
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // the window will be resizable
+
+        // Create the window
+        window = glfwCreateWindow(300, 300, &quot;Hello World!&quot;, NULL, NULL);
+        if ( window == NULL )
+            throw new RuntimeException(&quot;Failed to create the GLFW window&quot;);
+
+        // Setup a key callback. It will be called every time a key is pressed, repeated or released.
+        glfwSetKeyCallback(window, (window, key, scancode, action, mods) -&gt; {
+            if ( key == GLFW_KEY_ESCAPE &amp;&amp; action == GLFW_RELEASE )
+                glfwSetWindowShouldClose(window, true); // We will detect this in the rendering loop
+        });
+
+        // Get the thread stack and push a new frame
+        try ( MemoryStack stack = stackPush() ) {
+            IntBuffer pWidth = stack.mallocInt(1); // int*
+            IntBuffer pHeight = stack.mallocInt(1); // int*
+
+            // Get the window size passed to glfwCreateWindow
+            glfwGetWindowSize(window, pWidth, pHeight);
+
+            // Get the resolution of the primary monitor
+            GLFWVidMode vidmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+
+            // Center the window
+            glfwSetWindowPos(
+                    window,
+                    (vidmode.width() - pWidth.get(0)) / 2,
+                    (vidmode.height() - pHeight.get(0)) / 2
+            );
+        } // the stack frame is popped automatically
+
+        // Make the OpenGL context current
+        glfwMakeContextCurrent(window);
+        // Enable v-sync
+        glfwSwapInterval(1);
+
+        // Make the window visible
+        glfwShowWindow(window);
+    }
+
+    private void loop() {
+        // This line is critical for LWJGL's interoperation with GLFW's
+        // OpenGL context, or any context that is managed externally.
+        // LWJGL detects the context that is current in the current thread,
+        // creates the GLCapabilities instance and makes the OpenGL
+        // bindings available for use.
+        GL.createCapabilities();
+
+        // Set the clear color
+        glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+
+        // Run the rendering loop until the user has attempted to close
+        // the window or has pressed the ESCAPE key.
+        while ( !glfwWindowShouldClose(window) ) {
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // clear the framebuffer
+
+            glfwSwapBuffers(window); // swap the color buffers
+
+            // Poll for window events. The key callback above will only be
+            // invoked during this call.
+            glfwPollEvents();
+        }
+    }
+
+    public static void main(String[] args) {
+        new HelloWorld().run();
+    }
+
+}
+</code></pre>
+<p>运行成功的效果如下：<br>
+<img src="https://dxone1.github.io//post-images/1641630720280.png" alt="" loading="lazy"></p>
+<h2 id="the-game-loop">The Game Loop</h2>
+<p>之前学习过，游戏的运行往往需要一个合适的帧率，一个我们常用的方式如下：</p>
+<pre><code class="language-java">double secsPerFrame = 1.0d / 50.0d;
+
+while (keepOnRunning) {
+    double now = getTime();
+    handleInput();
+    updateGameState();
+    render();
+    sleep(now + secsPerFrame – getTime());
+}
+</code></pre>
+<p>这是一个直观的方式，通过sleep保持每秒50帧的刷新率，然而这存在着一些问题，首先是sleep其时间精度仅有0.1秒，其次计算机可能会进行调度从而不符合物理要求。我们接下来会采用<strong>定长游戏循环的方式</strong>，其思路是单独控制状态更新和渲染周期，如果状态更新未能及时完成那么就直接跳过这一帧不进行渲染。为了避免耗尽资源在sleep时拆分成数个1ms的休眠。<br>
+垂直同步技术能同步更新和GPU渲染，这样就不需要微休眠。我们使用<code>glfwSwapInterval</code>参数设置为1标识60FPS，如果想获得30FPS则需要设置为2。<br>
+参考github代码，编写一个可运行的demo。其中Window和Timer提供了窗口与计时器的组件功能，GameEngine定义了游戏主循环流程，使用了模板设计模式将实际的执行实现延迟到IGameLogic的实现类中，具体的就是<code>update()</code>和<code>render()</code>的流程。<br>
+game文件夹中包含了一个简单实现<code>DummyGame</code>和渲染器<code>Render</code>，渲染器会简单的用<code>glClearColor()</code>设置的颜色和深度信息清除缓冲区。</p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[商城项目 day23：在k8s中部署服务]]></title>
         <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day23zai-k8s-zhong-bu-shu-fu-wu/</id>
@@ -3939,172 +4091,6 @@ public class HelloController {
             return &quot;list&quot;;
         }
     }
-}
-</code></pre>
-]]></content>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[商城项目 day14：异步处理]]></title>
-        <id>https://dxone1.github.io/post/shang-cheng-xiang-mu-day14yi-bu-chu-li/</id>
-        <link href="https://dxone1.github.io/post/shang-cheng-xiang-mu-day14yi-bu-chu-li/">
-        </link>
-        <updated>2021-11-20T11:58:30.000Z</updated>
-        <content type="html"><![CDATA[<p>实现异步处理的商品详情页功能</p>
-<h2 id="来源">来源</h2>
-<p>商品详情页往往需要远程调用，数据库查询等多种操作。在IO操作上阻塞显然不是好的主意。于是需要进行异步编排。具体的，有如下渲染和获取步骤：</p>
-<ol>
-<li>商品详情</li>
-<li>同种商品不同的SKU信息</li>
-<li>SPU信息</li>
-<li>库存信息</li>
-<li>优惠信息</li>
-<li>...<br>
-可以看到找出哪一种商品是最先需要做的，可以使用ComplateableFuture实现异步任务的同步和管理。</li>
-</ol>
-<h2 id="实现">实现</h2>
-<p>同样配置好一个item.mall.com的本地Hosts，因为Nginx已经匹配了*.mall.com的路径跳转至网关，所以只需要配置网关路由即可。</p>
-<ol>
-<li>编写一个Controller，返回跳转到item页面</li>
-<li>封装一个SkuItemVo的对象，用于封装需要返回给页面的数据</li>
-</ol>
-<pre><code class="language-java">@Data
-public class SkuItemVo {
-    //基本sku信息
-    SkuInfoEntity info;
-    //sku的图片
-    List&lt;SkuImagesEntity&gt; images;
-    //sku的各种销售属性的集合
-    List&lt;SkuItemSaleAttrVo&gt; saleAttr;
-    //spu的商品介绍
-    SpuInfoDescEntity desp;
-    //spu的基本信息分组集合
-    List&lt;SpuItemAttrGroupVo&gt; groupAttrs;
-
-    @Data
-    public static class SkuItemSaleAttrVo {
-        private Long attrId;
-        private String attrName;
-        private List&lt;String&gt; attrValues;
-    }
-
-    @Data
-    public static class SpuItemAttrGroupVo {
-        private String groupName;
-        private List&lt;SpuBaseAttrVo&gt; attrs;
-    }
-
-    @Data
-    public static class SpuBaseAttrVo {
-        private Long attrId;
-        private String attrValues;
-    }
-}
-</code></pre>
-<ol start="3">
-<li>封装这个对象的业务代码编写<br>
-业务上都是与之前的大同小异，关键在于异步编排<br>
-异步之前也可以实现业务，如下：</li>
-</ol>
-<pre><code class="language-java">@Override
-public SkuItemVo item(Long skuId) {
-    SkuItemVo skuItemVo = new SkuItemVo();
-    
-    // 1. pms_sku_inf
-    SkuInfoEntity info = this.getById(skuId);
-    Long catalogId = info.getCatalogId();
-    Long spuId = info.getSpuId();
-    skuItemVo.setInfo(info);
-
-    // 2. pms_sku_images
-    List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
-    skuItemVo.setImages(images);
-
-    // 3. spu的销售属性组合
-    List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(spuId);
-    skuItemVo.setSaleAttr(saleAttrVos);
-
-    // 4. spu的介绍
-    SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(spuId);
-    skuItemVo.setDesp(spuInfoDesc);
-
-    // 5. spu的规格参数信息
-    List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(spuId, catalogId);
-    skuItemVo.setGroupAttrs(attrGroupVos);
-
-    return skuItemVo;
-}
-</code></pre>
-<p><img src="https://dxone1.github.io//post-images/1637501476084.png" alt="" loading="lazy"><br>
-<img src="https://dxone1.github.io//post-images/1637501479800.png" alt="" loading="lazy"><br>
-<strong>使用异步方式进行</strong><br>
-1，2相互独立<br>
-3，4，5依赖于1的查询结果</p>
-<ol>
-<li>首先放一个单例的可配置线程池</li>
-</ol>
-<pre><code class="language-java">@ConfigurationProperties(prefix = &quot;mall.thread&quot;)
-@Data
-public class ThreadPollConfigProperties {
-    private Integer coreSize;
-    private Integer maxSize;
-    private Integer keepAliveTime;
-}
-
-/********************/
-@EnableConfigurationProperties(ThreadPollConfigProperties.class)
-@Configuration
-public class MyThreadConfig {
-    @Bean
-    public ThreadPoolExecutor threadPoolExecutor(ThreadPollConfigProperties pool) {
-        return new ThreadPoolExecutor(pool.getCoreSize(),
-                pool.getMaxSize(),
-                pool.getKeepAliveTime(),
-                TimeUnit.SECONDS,
-                new LinkedBlockingDeque&lt;&gt;(100000),
-                Executors.defaultThreadFactory(),
-                new ThreadPoolExecutor.AbortPolicy());
-    }
-}
-</code></pre>
-<p>修改为异步方式执行后端逻辑</p>
-<pre><code class="language-java">@Override
-public SkuItemVo item(Long skuId) throws ExecutionException, InterruptedException {
-    SkuItemVo skuItemVo = new SkuItemVo();
-
-    CompletableFuture&lt;SkuInfoEntity&gt; infoFuture = CompletableFuture.supplyAsync(() -&gt; {
-        // 1. pms_sku_info
-        SkuInfoEntity info = getById(skuId);
-        skuItemVo.setInfo(info);
-        return info;
-    }, executor);
-
-    CompletableFuture&lt;Void&gt; saleAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
-        // 3. spu的销售属性组合
-        List&lt;SkuItemSaleAttrVo&gt; saleAttrVos = skuSaleAttrValueService.getSaleAttrsBySpuId(res.getSpuId());
-        skuItemVo.setSaleAttr(saleAttrVos);
-    }, executor);
-
-    CompletableFuture&lt;Void&gt; descFuture = infoFuture.thenAcceptAsync((res) -&gt; {
-        // 4. spu的介绍
-        SpuInfoDescEntity spuInfoDesc = spuInfoDescService.getById(res.getSpuId());
-        skuItemVo.setDesp(spuInfoDesc);
-    }, executor);
-
-    CompletableFuture&lt;Void&gt; baseAttrFuture = infoFuture.thenAcceptAsync((res) -&gt; {
-        // 5. spu的规格参数信息
-        List&lt;SpuItemAttrGroupVo&gt; attrGroupVos = attrGroupService.getAttrGroupWithAttrsBySpuId(res.getSpuId(), res.getCatalogId());
-        skuItemVo.setGroupAttrs(attrGroupVos);
-    }, executor);
-
-    CompletableFuture&lt;Void&gt; imagesFuture = CompletableFuture.runAsync(() -&gt; {
-        // 2. pms_sku_images
-        List&lt;SkuImagesEntity&gt; images = skuImagesService.getImagesBySkuId(skuId);
-        skuItemVo.setImages(images);
-    }, executor);
-
-    CompletableFuture.allOf(saleAttrFuture, descFuture, baseAttrFuture, imagesFuture).get();
-
-    return skuItemVo;
 }
 </code></pre>
 ]]></content>
