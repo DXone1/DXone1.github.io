@@ -1,0 +1,570 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lwjgl学习2：渲染一个多边形 | Gridea</title>
+<link rel="shortcut icon" href="https://dxone1.github.io//favicon.ico?v=1642415032384">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@2.3.0/fonts/remixicon.css" rel="stylesheet">
+<link rel="stylesheet" href="https://dxone1.github.io//styles/main.css">
+<link rel="alternate" type="application/atom+xml" title="Lwjgl学习2：渲染一个多边形 | Gridea - Atom Feed" href="https://dxone1.github.io//atom.xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Droid+Serif:400,700">
+
+
+
+    <meta name="description" content="使用前一部分的知识，我们尝试在这个章节渲染一个矩形，它仍然是基于三角形的基础，通过两个三角形的拼接实现的。
+基本
+我们按照之前的方法，新建一个Mesh类负责管理和创建VAO与VBO，代码如下
+package com.dong.engine...." />
+    <meta name="keywords" content="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css">
+    <script src="https://cdn.bootcss.com/highlight.js/9.12.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="main-content">
+        <div class="site-header">
+  <a href="https://dxone1.github.io/">
+  <img class="avatar" src="https://dxone1.github.io//images/avatar.png?v=1642415032384" alt="">
+  </a>
+  <h1 class="site-title">
+    Gridea
+  </h1>
+  <p class="site-description">
+    温故而知新
+  </p>
+  <div class="menu-container">
+    
+      
+        <a href="/" class="menu">
+          首页
+        </a>
+      
+    
+      
+        <a href="/archives" class="menu">
+          归档
+        </a>
+      
+    
+      
+        <a href="/tags" class="menu">
+          标签
+        </a>
+      
+    
+      
+        <a href="/post/about" class="menu">
+          关于
+        </a>
+      
+    
+      
+        <a href="/mall" class="menu">
+          商城项目
+        </a>
+      
+    
+      
+        <a href="/lwjgl" class="menu">
+          LwJGL学习
+        </a>
+      
+    
+  </div>
+  <div class="social-container">
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  </div>
+</div>
+
+        <div class="post-detail">
+          <article class="post">
+            <h2 class="post-title">
+              Lwjgl学习2：渲染一个多边形
+            </h2>
+            <div class="post-info">
+              <span>
+                2022-01-17
+              </span>
+              <span>
+                9 min read
+              </span>
+              
+            </div>
+            
+            <div class="post-content-wrapper">
+              <div class="post-content">
+                <p>使用前一部分的知识，我们尝试在这个章节渲染一个矩形，它仍然是基于三角形的基础，通过两个三角形的拼接实现的。</p>
+<h2 id="基本">基本</h2>
+<p>我们按照之前的方法，新建一个<code>Mesh</code>类负责管理和创建VAO与VBO，代码如下</p>
+<pre><code class="language-java">package com.dong.engine.graph;
+
+import org.lwjgl.system.MemoryUtil;
+
+import java.nio.FloatBuffer;
+
+import static org.lwjgl.opengl.GL15.*;
+import static org.lwjgl.opengl.GL20.*;
+import static org.lwjgl.opengl.GL30.*;
+
+/**
+ * 提供对于任意图形的基于三角形的渲染
+ */
+public class Mesh {
+
+    private final int vaoId;
+
+    private final int vboId;
+
+    private final int vertexCount;
+
+    /**
+     * 传入了一组顶点位置数组
+     * @param positions 顶点位置数组
+     */
+    public Mesh(float[] positions) {
+        FloatBuffer verticesBuffer = null;
+        try {
+            verticesBuffer = MemoryUtil.memAllocFloat(positions.length);
+            // 顶点数量是位置数组数量除以3，因为是三元组
+            vertexCount = positions.length / 3;
+            verticesBuffer.put(positions).flip();
+
+            vaoId = glGenVertexArrays();
+            glBindVertexArray(vaoId);
+
+            vboId = glGenBuffers();
+            glBindBuffer(GL_ARRAY_BUFFER, vboId);
+            glBufferData(GL_ARRAY_BUFFER, verticesBuffer, GL_STATIC_DRAW);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+            glBindVertexArray(0);
+        } finally {
+            if(verticesBuffer != null) {
+                MemoryUtil.memFree(verticesBuffer);
+            }
+        }
+    }
+
+    public int getVaoId() {
+        return vaoId;
+    }
+
+    public int getVertexCount() {
+        return vertexCount;
+    }
+
+    public void cleanUp() {
+        glDisableVertexAttribArray(0);
+
+        // 删除VBO
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDeleteBuffers(vboId);
+
+        // 删除VAO
+        glBindVertexArray(0);
+        glDeleteVertexArrays(vaoId);
+    }
+}
+</code></pre>
+<p>可以看到这部分将VAO和VBO的创建与销毁封装了起来，这样实现了解耦合。这样我们就能改造<code>Renderer</code>类，使其专注于着色器GL程序的相关工作，即调用<code>ShaderProgram</code>的部分</p>
+<pre><code class="language-java">package com.dong.game;
+
+import com.dong.engine.Window;
+import com.dong.engine.graph.Mesh;
+import com.dong.engine.graph.ShaderProgram;
+
+import static com.dong.engine.Utils.loadResource;
+import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.opengl.GL30.glBindVertexArray;
+
+/**
+ * 渲染类
+ */
+public class Renderer {
+
+    private ShaderProgram shaderProgram;
+
+    public Renderer() {
+    }
+
+    /**
+     * 初始化方法，创建shaderProgram
+     * 之后读取code创建顶点着色器和片元着色器
+     * 最后完成链接
+     * @throws Exception
+     */
+    public void init() throws Exception {
+        this.shaderProgram = new ShaderProgram();
+        shaderProgram.createVertexShader(loadResource(&quot;/vertex.vs&quot;));
+        shaderProgram.createFragmentShader(loadResource(&quot;/fragment.fs&quot;));
+        shaderProgram.link();
+    }
+
+    /**
+     * 将缓存清除为预先设置值
+     * 使用GL_COLOR_BUFFER_BIT和GL_DEPTH_BUFFER_BIT的位并操作清除
+     */
+    public void clear() {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
+
+    /**
+     * 渲染功能
+     * @param window 传递来的窗口
+     */
+    public void render(Window window, Mesh mesh) {
+        // 清除
+        clear();
+        if(window.isResized()) {
+            // 如果窗口更新了尺寸，则更新GL的视口
+            glViewport(0, 0, window.getWidth(), window.getHeight());
+            window.setResized(false);
+        }
+        // 绑定shader程序
+        shaderProgram.bind();
+
+        // 绘制
+        glBindVertexArray(mesh.getVaoId());
+        glDrawArrays(GL_TRIANGLES, 0, mesh.getVertexCount());
+
+        // 解绑和还原
+        glBindVertexArray(0);
+
+        shaderProgram.unbind();
+    }
+
+    /**
+     * 清除程序
+     */
+    public void cleanup() {
+        if(shaderProgram != null) {
+            shaderProgram.cleanup();
+        }
+    }
+}
+</code></pre>
+<p>这次，VAO和VBO的创建不再由其<code>init()</code>方法负责，在执行具体渲染<code>render()</code>时不仅需要传入一个窗口<code>Window</code>还需要传入一个<code>Mesh</code>这样就能获得VAO和VBO的相关状态了。<br>
+同时需要注意的是<code>glDrawArrays(GL_TRIANGLES, 0, mesh.getVertexCount());</code>函数，这个函数说明一次绘制一个数组的图形。对于<code>DummyGame</code>的改造也十分简单，如下：</p>
+<pre><code class="language-java">@Override
+public void init() throws Exception {
+    renderer.init();
+    float[] positions = new float[]{
+        -0.5f, 0.5f, 0.0f,
+        -0.5f, -0.5f, 0.0f,
+        0.5f, 0.5f, 0.0f,
+        0.5f, 0.5f, 0.0f,
+        -0.5f, -0.5f, 0.0f,
+        0.5f, -0.5f, 0.0f,
+    };
+    mesh = new Mesh(positions);
+}
+
+@Override
+public void render(Window window) {
+    // 设置为统一颜色
+    window.setClearColor(color, color, color, 0.0f);
+    renderer.render(window, mesh);
+}
+
+@Override
+public void cleanup() {
+    renderer.cleanup();
+    mesh.cleanUp();
+}
+</code></pre>
+<p>效果就是渲染出一个正方形<br>
+<img src="https://dxone1.github.io//post-images/1642411376682.png" alt="" loading="lazy"></p>
+<h2 id="问题和改造">问题和改造</h2>
+<p>以上述的渲染一个正方形为例，我们对三角形连接处的两个顶点传递了两次，如果是简单图形不会有什么问题，然而在大型3D模型中这是往往不可接受的。下图中有些点由6个以上的三角形共享。<br>
+<img src="https://dxone1.github.io//post-images/1642411571269.png" alt="" loading="lazy"><br>
+为了节省缓存空间，我们使用索引缓冲区来实现。例如这样一个矩形<br>
+<img src="https://dxone1.github.io//post-images/1642411807832.png" alt="" loading="lazy"><br>
+索引缓冲区中的数组按照三元组的形式（其实是一整块，但是每三个分割为一个三角形）记录了每个三角形使用的顶点元素，OpenGL习惯使用逆时针记录。这样就能正确的给三角形分片，同时便于确定法线。<br>
+例如上面的矩形，我们给每个顶点标号<br>
+<img src="https://dxone1.github.io//post-images/1642412137103.png" alt="" loading="lazy"><br>
+那么我们沿对角线切分渲染的两个三角形在索引缓冲区中记录为<br>
+<img src="https://dxone1.github.io//post-images/1642412224841.png" alt="" loading="lazy"><br>
+搞定原理之后我们开始代码的改造。首先是<code>Mesh</code>，我们需要让其包含一个新的索引缓冲区创建。注意在绑定索引VBO时使用的是<code>GL_ELEMENT_ARRAY_BUFFER</code></p>
+<pre><code class="language-java">/**
+    * 传入了一组顶点位置数组
+    * @param positions 顶点位置数组
+    * @param indices 索引数组
+    */
+public Mesh(float[] positions, int[] indices) {
+    FloatBuffer posBuffer = null;
+    IntBuffer indicesBuffer = null;
+    try {
+        // 索引数量就是总的顶点数量
+        vertexCount = indices.length;
+        // VAO
+        vaoId = glGenVertexArrays();
+        glBindVertexArray(vaoId);
+
+        // 位置VBO
+        posBuffer = MemoryUtil.memAllocFloat(positions.length);
+        posBuffer.put(positions).flip();
+
+        posVboId = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, posVboId);
+        glBufferData(GL_ARRAY_BUFFER, posBuffer, GL_STATIC_DRAW);
+        // VAO生成posVBO的指针
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+
+        // 索引VBO
+        indicesBuffer = MemoryUtil.memAllocInt(indices.length);
+        indicesBuffer.put(indices).flip();
+
+        idxVboId = glGenBuffers();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, idxVboId);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicesBuffer, GL_STATIC_DRAW);
+
+        // 恢复
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    } finally {
+        if(posBuffer != null) {
+            MemoryUtil.memFree(posBuffer);
+        }
+        if(indicesBuffer != null) {
+            MemoryUtil.memFree(indicesBuffer);
+        }
+    }
+}
+</code></pre>
+<p>接下来需要修正传入的顶点，顶点按照顺序默认标号，索引数组<code>indices</code>是三角形的构成顺序</p>
+<pre><code class="language-java">// DummyGame::init
+@Override
+public void init() throws Exception {
+    renderer.init();
+    float[] positions = new float[]{
+            -0.5f,  0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+            0.5f, -0.5f, 0.0f,
+            0.5f,  0.5f, 0.0f,
+    };
+    int[] indices = new int[]{
+            0, 1, 3, 3, 1, 2,
+    };
+    mesh = new Mesh(positions, indices);
+}
+</code></pre>
+<p>最后，将绘制图形部分的函数替换为<code>glDrawElements()</code>，就可以使用索引Buffer的信息绘图。</p>
+<pre><code class="language-java">glDrawElements(GL_TRIANGLES, mesh.getVertexCount(), GL_UNSIGNED_INT, 0);
+</code></pre>
+<ul>
+<li>mode: 指定渲染的图元类型，现在是三角形，没有变化。</li>
+<li>count: 指定要渲染的顶点数。</li>
+<li>type: 指定索引数据的类型，现在是无符号整数型。</li>
+<li>indices: 指定要开始使用索引渲染的数据偏移量。</li>
+</ul>
+<h2 id="来点颜色">来点颜色</h2>
+<p>思路还是这样延续的，再添加一组颜色的VBO</p>
+<pre><code class="language-java">/**
+    * 传入了一组顶点位置数组
+    * @param positions 顶点位置数组
+    * @param indices 索引数组
+    * @param colours 颜色数组
+    */
+public Mesh(float[] positions, float[] colours, int[] indices) {
+    FloatBuffer posBuffer = null;
+    IntBuffer indicesBuffer = null;
+    FloatBuffer colourBuffer = null;
+    try {
+        // 索引数量就是总的顶点数量
+        vertexCount = indices.length;
+        // VAO
+        vaoId = glGenVertexArrays();
+        glBindVertexArray(vaoId);
+
+        // 位置VBO
+        posBuffer = MemoryUtil.memAllocFloat(positions.length);
+        posBuffer.put(positions).flip();
+
+        posVboId = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, posVboId);
+        glBufferData(GL_ARRAY_BUFFER, posBuffer, GL_STATIC_DRAW);
+        // VAO生成posVBO的指针
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+
+        // 颜色VBO
+        colourBuffer = MemoryUtil.memAllocFloat(colours.length);
+        colourBuffer.put(colours).flip();
+
+        colourVboId = glGenBuffers();
+        glBindBuffer(GL_ARRAY_BUFFER, colourVboId);
+        glBufferData(GL_ARRAY_BUFFER, colourBuffer, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, false, 0, 0);
+
+        // 索引VBO
+        indicesBuffer = MemoryUtil.memAllocInt(indices.length);
+        indicesBuffer.put(indices).flip();
+
+        idxVboId = glGenBuffers();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, idxVboId);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicesBuffer, GL_STATIC_DRAW);
+
+        // 恢复
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    } finally {
+        if(posBuffer != null) {
+            MemoryUtil.memFree(posBuffer);
+        }
+        if(indicesBuffer != null) {
+            MemoryUtil.memFree(indicesBuffer);
+        }
+        if(colourBuffer != null) {
+            MemoryUtil.memFree(colourBuffer);
+        }
+    }
+}
+
+// 注意cleanup()也要添加VBO的删除
+public void cleanUp() {
+    glDisableVertexAttribArray(0);
+
+    // 删除VBO
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(posVboId);
+    glDeleteBuffers(idxVboId);
+    glDeleteBuffers(colourVboId);
+
+    // 删除VAO
+    glBindVertexArray(0);
+    glDeleteVertexArrays(vaoId);
+}
+</code></pre>
+<p>接下来修改着色器，我们使用<code>GL_ARRAY_BUFFER</code>的0号位置保存位置信息，1号位置保存颜色信息，所以在顶点着色器中指定位置，同时将颜色信息向下传递给片元着色器。</p>
+<pre><code class="language-c">// vertex.vs
+#version 460
+
+layout (location=0) in vec3 position;
+layout (location=1) in vec3 inColour;
+
+out vec3 exColour;
+
+void main()
+{
+    gl_Position = vec4(position, 1.0);
+    exColour = inColour;
+}
+</code></pre>
+<p>片元着色器的实现如下，使用传递过来的颜色信息进行渲染</p>
+<pre><code class="language-c">// fragment.fs
+#version 460
+
+in vec3 exColour;
+out vec4 fragColor;
+
+void main()
+{
+    fragColor = vec4(exColour, 1.0);
+}
+</code></pre>
+<p>最终我们指定一组颜色信息，颜色信息指定各个顶点的颜色，之间的颜色采用区间插值实现</p>
+<pre><code class="language-java">float[] colours = new float[] {
+    0.5f, 0.0f, 0.0f,
+    0.0f, 0.5f, 0.0f,
+    0.0f, 0.0f, 0.5f,
+    0.0f, 0.5f, 0.5f,
+};
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://dxone1.github.io//post-images/1642415008869.png" alt="" loading="lazy"></figure>
+
+              </div>
+              <div class="toc-container">
+                <ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#%E5%9F%BA%E6%9C%AC">基本</a></li>
+<li><a href="#%E9%97%AE%E9%A2%98%E5%92%8C%E6%94%B9%E9%80%A0">问题和改造</a></li>
+<li><a href="#%E6%9D%A5%E7%82%B9%E9%A2%9C%E8%89%B2">来点颜色</a></li>
+</ul>
+</li>
+</ul>
+
+              </div>
+            </div>
+          </article>
+        </div>
+
+        
+          <div class="next-post">
+            <div class="next">下一篇</div>
+            <a href="https://dxone1.github.io/post/lwjgl-xue-xi-1xuan-ran/">
+              <h3 class="post-title">
+                Lwjgl学习1：渲染
+              </h3>
+            </a>
+          </div>
+        
+
+        
+
+        <div class="site-footer">
+  Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>
+  <a class="rss" href="https://dxone1.github.io//atom.xml" target="_blank">
+    <i class="ri-rss-line"></i> RSS
+  </a>
+</div>
+
+      </div>
+    </div>
+
+    <script>
+      hljs.initHighlightingOnLoad()
+
+      let mainNavLinks = document.querySelectorAll(".markdownIt-TOC a");
+
+      // This should probably be throttled.
+      // Especially because it triggers during smooth scrolling.
+      // https://lodash.com/docs/4.17.10#throttle
+      // You could do like...
+      // window.addEventListener("scroll", () => {
+      //    _.throttle(doThatStuff, 100);
+      // });
+      // Only not doing it here to keep this Pen dependency-free.
+
+      window.addEventListener("scroll", event => {
+        let fromTop = window.scrollY;
+
+        mainNavLinks.forEach((link, index) => {
+          let section = document.getElementById(decodeURI(link.hash).substring(1));
+          let nextSection = null
+          if (mainNavLinks[index + 1]) {
+            nextSection = document.getElementById(decodeURI(mainNavLinks[index + 1].hash).substring(1));
+          }
+          if (section.offsetTop <= fromTop) {
+            if (nextSection) {
+              if (nextSection.offsetTop > fromTop) {
+                link.classList.add("current");
+              } else {
+                link.classList.remove("current");    
+              }
+            } else {
+              link.classList.add("current");
+            }
+          } else {
+            link.classList.remove("current");
+          }
+        });
+      });
+
+    </script>
+  </body>
+</html>
